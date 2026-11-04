@@ -4,7 +4,7 @@ spring:
   profiles:
     default: local
   datasource:
-    url: ${DATABASE_URL:jdbc:h2:file:./data/schitay;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
+    url: ${DATABASE_URL:jdbc:h2:file:./data/schitay;MODE=PostgreSQL;NON_KEYWORDS=DAY,VALUE;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
     username: ${DATABASE_USER:sa}
     password: ${DATABASE_PASSWORD:}
   servlet:
@@ -39,3 +39,5 @@ app:
   admin-password: ${ADMIN_PASSWORD:}
   demo: ${DEMO_DATA:false}
   jobs: true
+  operator-name: ${OPERATOR_NAME:Организатор демонстрационного марафона}
+  operator-contact: ${OPERATOR_CONTACT:Обратитесь к педагогу}

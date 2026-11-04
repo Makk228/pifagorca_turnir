@@ -1,0 +1,6 @@
+category,topic,level,expression,answer
+BABY,Сложение,BASIC,2 + 3,5
+BABY,Сложение,BASIC,4 + 5,9
+BABY,Вычитание,BASIC,8 - 3,5
+SCHOOL,Сложение,MEDIUM,25 + 14 - 7,32
+SCHOOL,Вычитание,HARD,103 - 215,-112

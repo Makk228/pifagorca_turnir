@@ -12,8 +12,11 @@ import static ru.mentalarena.Db.*;
 import static ru.mentalarena.Input.*;
 @RestController @RequestMapping("/api")
 public class Api {
+ @org.springframework.beans.factory.annotation.Value("${app.operator-name:Организатор демонстрационного марафона}") String operator;
+ @org.springframework.beans.factory.annotation.Value("${app.operator-contact:Обратитесь к педагогу}") String contact;
  final Auth auth;final Db db;final Marathons marathons;final Libraries libraries;final Assignments assignments;final Rankings rankings;final Clock clock;
  Api(Auth auth,Db db,Marathons marathons,Libraries libraries,Assignments assignments,Rankings rankings,Clock clock){this.auth=auth;this.db=db;this.marathons=marathons;this.libraries=libraries;this.assignments=assignments;this.rankings=rankings;this.clock=clock;}
+ @GetMapping("/public-config") Object publicConfig(){return Map.of("operator",operator,"contact",contact);}
  @GetMapping("/session") public Map<String,Object> session(HttpServletRequest req,CsrfToken csrf){Map<String,Object> out=new LinkedHashMap<>();out.put("csrfToken",csrf.getToken());out.put("serverTime",clock.instant());try{out.put("user",auth.safe(auth.current(req)));}catch(org.springframework.web.server.ResponseStatusException e){out.put("user",null);}return out;}
  @PostMapping("/register") Object register(@RequestBody Map<String,Object> b,HttpServletRequest r){return auth.register(b,r.getRemoteAddr());}
  @PostMapping("/login") Object login(@RequestBody Map<String,Object> b,HttpServletRequest r){return auth.login(b,r);}

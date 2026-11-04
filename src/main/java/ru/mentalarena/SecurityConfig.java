@@ -6,6 +6,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 @Configuration
 public class SecurityConfig {
+ @Bean org.springframework.security.core.userdetails.UserDetailsService unusedUsers(){return name->{throw new org.springframework.security.core.userdetails.UsernameNotFoundException("Use phone login");};}
  @Bean PasswordEncoder passwords(){return new BCryptPasswordEncoder(12);}
  @Bean SecurityFilterChain security(HttpSecurity http)throws Exception {
   return http.authorizeHttpRequests(a->a.anyRequest().permitAll())
