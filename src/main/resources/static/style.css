@@ -1027,3 +1027,17 @@ footer {
     transition: none !important;
   }
 }
+
+.nav a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nav-icon {
+  width: 19px;
+  height: 19px;
+  filter: invert(94%) sepia(8%) saturate(400%) hue-rotate(35deg);
+}
+img.avatar {
+  object-fit: cover;
+}

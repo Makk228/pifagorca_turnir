@@ -891,4 +891,23 @@ class PlatformTest {
     assertThat(db.list("select * from sms_outbox")).hasSize(size);
     assertThat(db.list("select * from sms_outbox where event_key like 'tie:%'")).hasSize(2);
   }
+
+  @Test
+  void productionStartupRejectsUnsafeConfiguration() {
+    var env = new org.springframework.mock.env.MockEnvironment();
+    env.setActiveProfiles("prod");
+    var bootstrap = new Bootstrap(db, auth, marathons, assignments, clock, env);
+    var args = new org.springframework.boot.DefaultApplicationArguments(new String[0]);
+    assertThatThrownBy(() -> bootstrap.run(args)).isInstanceOf(ResponseStatusException.class);
+    env.withProperty("OPERATOR_NAME", "Тестовый оператор")
+        .withProperty("OPERATOR_CONTACT", "qa@example.invalid")
+        .withProperty("spring.datasource.url", "jdbc:postgresql://db/schitay")
+        .withProperty("app.sms-mode", "smsru")
+        .withProperty("app.sms-api-key", "test-not-a-real-key");
+    assertThatCode(() -> bootstrap.run(args)).doesNotThrowAnyException();
+    env.withProperty("app.demo", "true");
+    assertThatThrownBy(() -> bootstrap.run(args)).isInstanceOf(ResponseStatusException.class);
+    env.withProperty("app.demo", "false").withProperty("app.sms-mode", "local");
+    assertThatThrownBy(() -> bootstrap.run(args)).isInstanceOf(ResponseStatusException.class);
+  }
 }
