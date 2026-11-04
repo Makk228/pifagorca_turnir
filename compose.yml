@@ -1,0 +1,73 @@
+name: schitay
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: schitay
+      POSTGRES_USER: schitay
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U schitay -d schitay"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [internal]
+  app:
+    build: .
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DATABASE_URL: jdbc:postgresql://db:5432/schitay
+      DATABASE_USER: schitay
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD}
+      ADMIN_PHONE: ${ADMIN_PHONE:?Set ADMIN_PHONE}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
+      SMS_MODE: smsru
+      SMS_API_KEY: ${SMS_API_KEY:?Set SMS_API_KEY}
+      OPERATOR_NAME: ${OPERATOR_NAME:?Set OPERATOR_NAME}
+      OPERATOR_CONTACT: ${OPERATOR_CONTACT:?Set OPERATOR_CONTACT}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          "wget -q -O - http://127.0.0.1:8080/actuator/health | grep -q UP",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    restart: unless-stopped
+    networks: [internal, outbound]
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [internal, outbound]
+networks:
+  internal:
+    internal: true
+  outbound: {}
+volumes:
+  postgres_data: {}
+  caddy_data: {}
+  caddy_config: {}

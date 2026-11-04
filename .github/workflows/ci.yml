@@ -1,0 +1,37 @@
+name: verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: schitay
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: schitay
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U schitay" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - run: mvn -B clean verify
+      - run: mvn -B test
+        env:
+          TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/schitay
+          TEST_DATABASE_USER: schitay
+          TEST_DATABASE_PASSWORD: test-only
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-and-coverage-reports
+          path: |
+            target/surefire-reports
+            target/site/jacoco
+      - run: docker build -t schitay:ci .
