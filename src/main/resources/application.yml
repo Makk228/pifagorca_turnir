@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: schitay
+  profiles:
+    default: local
+  datasource:
+    url: ${DATABASE_URL:jdbc:h2:file:./data/schitay;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
+    username: ${DATABASE_USER:sa}
+    password: ${DATABASE_PASSWORD:}
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 3MB
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: never
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        http-only: true
+        same-site: strict
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+app:
+  sms-mode: ${SMS_MODE:local}
+  sms-api-key: ${SMS_API_KEY:}
+  admin-phone: ${ADMIN_PHONE:}
+  admin-password: ${ADMIN_PASSWORD:}
+  demo: ${DEMO_DATA:false}
+  jobs: true
