@@ -1,0 +1,17 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+Считай,ru.mentalarena,Sms.IOExceptionMarker,3,0,0,0,1,0,1,0,1,0
+Считай,ru.mentalarena,Assignments,69,1884,20,122,6,279,19,71,0,19
+Считай,ru.mentalarena,Rankings,13,1264,11,79,0,189,12,52,1,18
+Считай,ru.mentalarena,Libraries,30,414,15,25,3,66,14,10,0,4
+Считай,ru.mentalarena,RateLimiter,16,79,1,5,2,15,1,4,0,2
+Считай,ru.mentalarena,Auth,17,881,12,42,3,127,13,31,1,16
+Считай,ru.mentalarena,ApiErrors,22,15,1,1,4,3,4,2,3,2
+Считай,ru.mentalarena,SecurityConfig,5,58,0,0,1,12,1,11,1,11
+Считай,ru.mentalarena,Input,21,135,10,12,2,26,9,9,0,7
+Считай,ru.mentalarena,Marathons,82,890,16,42,12,126,16,27,0,14
+Считай,ru.mentalarena,Sms,143,130,15,9,29,20,11,4,1,2
+Считай,ru.mentalarena,Bootstrap,378,130,18,14,51,27,13,7,2,2
+Считай,ru.mentalarena,Api,151,377,2,2,21,54,13,24,12,23
+Считай,ru.mentalarena,Db,12,146,2,12,1,29,2,19,0,14
+Считай,ru.mentalarena,Jobs,24,0,0,0,11,0,4,0,4,0
+Считай,ru.mentalarena,Application,5,5,0,0,2,2,1,2,1,2
