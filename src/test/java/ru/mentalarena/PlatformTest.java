@@ -26,7 +26,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest(
     properties = {
-      "spring.datasource.url=${TEST_DATABASE_URL:jdbc:h2:mem:tests;MODE=PostgreSQL;NON_KEYWORDS=DAY,VALUE;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1}",
+      "spring.datasource.url=${TEST_DATABASE_URL:jdbc:h2:mem:tests;NON_KEYWORDS=DAY,VALUE;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1}",
       "spring.datasource.username=${TEST_DATABASE_USER:sa}",
       "spring.datasource.password=${TEST_DATABASE_PASSWORD:}",
       "app.jobs=false",
@@ -40,7 +40,7 @@ class PlatformTest {
   @Autowired Libraries libraries;
   @Autowired Assignments assignments;
   @Autowired Rankings rankings;
-  @Autowired Sms sms;
+  @Autowired MailDelivery mail;
   @Autowired MockMvc mvc;
   @Autowired ObjectMapper json;
   @Autowired TestClock clock;
@@ -100,16 +100,16 @@ class PlatformTest {
             "marathons",
             "children",
             "consents",
-            "sms_outbox",
+            "mail_outbox",
             "otp",
             "audit",
             "rate_limits",
             "users")) db.run("delete from " + table);
     clock.set("2026-11-05T09:00:00Z");
-    parent = user("79001110001", "PARENT");
-    teacher = user("79001110002", "TEACHER");
-    admin = user("79001110003", "ADMIN");
-    other = user("79001110004", "PARENT");
+    parent = user("parent@example.test", "PARENT");
+    teacher = user("teacher@example.test", "TEACHER");
+    admin = user("admin@example.test", "ADMIN");
+    other = user("other@example.test", "PARENT");
     child =
         marathons.child(
             parent,
@@ -161,14 +161,14 @@ class PlatformTest {
     aid = manual(child, 1);
   }
 
-  Map<String, Object> user(String phone, String role) {
+  Map<String, Object> user(String email, String role) {
     String uid = id();
     db.run(
         "insert into"
-            + " users(id,phone,full_name,password_hash,role,sms_consent,ranking_consent,created_at)"
+            + " users(id,email,full_name,password_hash,role,email_consent,ranking_consent,created_at)"
             + " values(?,?,?,?,?,true,true,?)",
         uid,
-        phone,
+        email,
         "Пользователь " + role,
         auth.hashPassword("Password123!"),
         role,
@@ -434,10 +434,10 @@ class PlatformTest {
   @Test
   void duplicateSubmitDoesNotChangeScoreOrNotifyAgain() {
     var first = submitAll(aid);
-    long notifications = db.list("select * from sms_outbox").size();
+    long notifications = db.list("select * from mail_outbox").size();
     var second = assignments.save(parent, aid, Map.of("version", 0, "answers", Map.of()), true);
     assertThat(attempt(second)).isEqualTo(attempt(first));
-    assertThat(db.list("select * from sms_outbox")).hasSize((int) notifications);
+    assertThat(db.list("select * from mail_outbox")).hasSize((int) notifications);
   }
 
   @Test
@@ -793,7 +793,7 @@ class PlatformTest {
         .extracting(r -> r.get("category"), r -> r.get("rank"), r -> r.get("tie"))
         .containsExactly(tuple("SCHOOL", 1, false), tuple("BABY", 1, true), tuple("BABY", 1, true));
     rankings.notifyTies();
-    assertThat(db.list("select event_key from sms_outbox where event_key like 'tie:%'"))
+    assertThat(db.list("select event_key from mail_outbox where event_key like 'tie:%'"))
         .extracting(row -> s(row, "event_key"))
         .containsExactlyInAnyOrder("tie:" + mid + ":" + firstId + ":0", "tie:" + mid + ":" + secondId + ":0");
 
@@ -883,8 +883,8 @@ class PlatformTest {
     assertThatThrownBy(() -> rankings.get(parent, mid)).isInstanceOf(ResponseStatusException.class);
     marathons.update(teacher, mid, Map.of("published", true));
     auth.updateConsents(parent, Map.of("rankingConsent", false));
-    assertThat(db.one("select sms_consent from users where id=?", s(parent, "id")))
-        .containsEntry("sms_consent", true);
+    assertThat(db.one("select email_consent from users where id=?", s(parent, "id")))
+        .containsEntry("email_consent", true);
     assertThat(rankings.get(parent, mid))
         .allSatisfy(
             r ->
@@ -975,21 +975,21 @@ class PlatformTest {
     start();
     clock.advance(1801);
     assignments.tick();
-    int messages = db.list("select * from sms_outbox").size();
+    int messages = db.list("select * from mail_outbox").size();
     assignments.tick();
-    assertThat(db.list("select * from sms_outbox")).hasSize(messages);
+    assertThat(db.list("select * from mail_outbox")).hasSize(messages);
     assertThat(assignments.get(parent, aid).get("status")).isEqualTo("EXPIRED");
   }
 
   @Test
-  void smsLocalTransportAndWithdrawal() {
-    sms.deliver();
-    assertThat(db.list("select * from sms_outbox"))
+  void mailLocalTransportAndWithdrawal() {
+    mail.deliver();
+    assertThat(db.list("select * from mail_outbox"))
         .allSatisfy(r -> assertThat(r).containsEntry("status", "LOCAL"));
     auth.queue(s(parent, "id"), "new-notification", "тест", false);
-    auth.updateConsents(parent, Map.of("smsConsent", false, "rankingConsent", true));
-    sms.deliver();
-    assertThat(db.one("select * from sms_outbox where event_key='new-notification'"))
+    auth.updateConsents(parent, Map.of("emailConsent", false, "rankingConsent", true));
+    mail.deliver();
+    assertThat(db.one("select * from mail_outbox where event_key='new-notification'"))
         .containsEntry("status", "CANCELLED");
   }
 
@@ -1031,7 +1031,7 @@ class PlatformTest {
                 .session(old)
                 .with(csrf())
                 .contentType("application/json")
-                .content("{\"phone\":\"79001110001\",\"password\":\"Password123!\"}"))
+                .content("{\"email\":\"parent@example.test\",\"password\":\"Password123!\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.password_hash").doesNotExist());
     assertThat(old.isInvalid()).isTrue();
@@ -1178,8 +1178,8 @@ class PlatformTest {
   void registrationAndOtpRecoveryInvalidateSessions() throws Exception {
     auth.register(
         Map.of(
-            "phone",
-            "+7 (900) 999-88-88",
+            "email",
+            "new.parent@example.test",
             "fullName",
             "Новый Родитель",
             "password",
@@ -1190,31 +1190,31 @@ class PlatformTest {
             true,
             "participation",
             true,
-            "smsConsent",
+            "emailConsent",
             true),
         "ip-test");
-    var u = db.one("select * from users where phone='79009998888'");
+    var u = db.one("select * from users where email='new.parent@example.test'");
     assertThat(s(u, "password_hash")).isNotEqualTo("Test12");
-    assertThat(u).containsEntry("sms_consent", false);
-    assertThat(db.list("select * from consents where user_id=?", s(u, "id"))).hasSize(4);
+    assertThat(u).containsEntry("email_consent", true);
+    assertThat(db.list("select * from consents where user_id=?", s(u, "id"))).hasSize(5);
     mvc.perform(
             post("/api/login")
                 .with(csrf())
                 .contentType("application/json")
-                .content("{\"phone\":\"+79009998888\",\"password\":\"Test12\"}"))
+                .content("{\"email\":\"new.parent@example.test\",\"password\":\"Test12\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.verified").doesNotExist());
     assertThatThrownBy(
-            () -> auth.requestOtp(Map.of("phone", s(u, "phone"), "purpose", "VERIFY"), "ip-test"))
+            () -> auth.requestOtp(Map.of("email", s(u, "email"), "purpose", "VERIFY"), "ip-test"))
         .isInstanceOf(ResponseStatusException.class);
     var session = session(u);
     clock.advance(1);
-    auth.requestOtp(Map.of("phone", s(u, "phone"), "purpose", "RESET"), "ip-test");
+    auth.requestOtp(Map.of("email", s(u, "email"), "purpose", "RESET"), "ip-test");
     String code = codeFor(u);
     auth.verifyOtp(
         Map.of(
-            "phone",
-            s(u, "phone"),
+            "email",
+            s(u, "email"),
             "purpose",
             "RESET",
             "code",
@@ -1226,8 +1226,8 @@ class PlatformTest {
             () ->
                 auth.verifyOtp(
                     Map.of(
-                        "phone",
-                        s(u, "phone"),
+                        "email",
+                        s(u, "email"),
                         "purpose",
                         "RESET",
                         "code",
@@ -1240,42 +1240,42 @@ class PlatformTest {
   String codeFor(Map<String, Object> u) {
     return s(
             db.list(
-                    "select * from sms_outbox where user_id=? and service=true order by created_at"
+                    "select * from mail_outbox where user_id=? and service=true order by created_at"
                         + " desc",
                     s(u, "id"))
                 .getFirst(),
             "body")
-        .replaceAll(".*код (\\d{6}).*", "$1");
+        .replaceAll(".*?(\\d{6}).*", "$1");
   }
 
   @Test
   void wrongOtpAttemptsPersistAndLock() {
-    auth.requestOtp(Map.of("phone", s(parent, "phone"), "purpose", "RESET"), "ip");
+    auth.requestOtp(Map.of("email", s(parent, "email"), "purpose", "RESET"), "ip");
     for (int i = 0; i < 5; i++)
       assertThatThrownBy(
               () ->
                   auth.verifyOtp(
-                      Map.of("phone", s(parent, "phone"), "purpose", "RESET", "code", "bad",
+                      Map.of("email", s(parent, "email"), "purpose", "RESET", "code", "bad",
                           "newPassword", "NewPassword123!")))
           .isInstanceOf(ResponseStatusException.class);
-    assertThat(db.one("select * from otp where phone=?", s(parent, "phone")))
+    assertThat(db.one("select * from otp where email=?", s(parent, "email")))
         .containsEntry("tries", 5);
     assertThatThrownBy(
             () ->
                 auth.verifyOtp(
                     Map.of(
-                        "phone", s(parent, "phone"), "purpose", "RESET", "code", codeFor(parent),
+                        "email", s(parent, "email"), "purpose", "RESET", "code", codeFor(parent),
                         "newPassword", "NewPassword123!")))
         .isInstanceOf(ResponseStatusException.class);
   }
 
   @Test
-  void limitsAndUnknownPhoneDoNotLeakAccount() {
+  void limitsAndUnknownEmailDoNotLeakAccount() {
     for (int i = 0; i < 3; i++)
-      auth.requestOtp(Map.of("phone", "79009999999", "purpose", "RESET"), "unknown-ip");
+      auth.requestOtp(Map.of("email", "unknown@example.test", "purpose", "RESET"), "unknown-ip");
     assertThat(db.list("select * from otp")).isEmpty();
     assertThatThrownBy(
-            () -> auth.requestOtp(Map.of("phone", "79009999999", "purpose", "RESET"), "unknown-ip"))
+            () -> auth.requestOtp(Map.of("email", "unknown@example.test", "purpose", "RESET"), "unknown-ip"))
         .isInstanceOf(ResponseStatusException.class)
         .hasMessageContaining("429");
   }
@@ -1307,7 +1307,7 @@ class PlatformTest {
             get("/api/children/" + s(child, "id") + "/export").param("marathonId", mid).session(ts))
         .andExpect(status().isOk());
     mvc.perform(get("/api/admin/audit").session(ads)).andExpect(status().isOk());
-    mvc.perform(get("/api/admin/sms").session(ads))
+    mvc.perform(get("/api/admin/mail").session(ads))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].body").doesNotExist());
     mvc.perform(
@@ -1442,13 +1442,13 @@ class PlatformTest {
 
   @Test
   void otpExpirationAndPasswordPolicy() {
-    auth.requestOtp(Map.of("phone", s(parent, "phone"), "purpose", "RESET"), "ip");
+    auth.requestOtp(Map.of("email", s(parent, "email"), "purpose", "RESET"), "ip");
     String code = codeFor(parent);
     clock.advance(601);
     assertThatThrownBy(
             () ->
                 auth.verifyOtp(
-                    Map.of("phone", s(parent, "phone"), "purpose", "RESET", "code", code,
+                    Map.of("email", s(parent, "email"), "purpose", "RESET", "code", code,
                         "newPassword", "NewPassword123!")))
         .isInstanceOf(ResponseStatusException.class);
     assertThatThrownBy(() -> Input.password(Map.of("p", "short"), "p"))
@@ -1457,11 +1457,11 @@ class PlatformTest {
         .isInstanceOf(ResponseStatusException.class);
     assertThatThrownBy(() -> Input.password(Map.of("p", "я".repeat(40)), "p"))
         .isInstanceOf(ResponseStatusException.class);
-    assertThat(Input.phone("+7 (900) 123-45-67")).isEqualTo("79001234567");
+    assertThat(Input.email("User@Example.RU")).isEqualTo("user@example.ru");
   }
 
   @Test
-  void draftsCannotStartButPublishedAssignmentsNeedNoPhoneVerification() {
+  void draftsCannotStartButPublishedAssignmentsNeedNoEmailVerification() {
     marathons.update(teacher, mid, Map.of("status", "DRAFT"));
     assertThat(assignments.get(parent, aid).get("status")).isEqualTo("DRAFT");
     assertThatThrownBy(this::start).isInstanceOf(ResponseStatusException.class);
@@ -1486,11 +1486,11 @@ class PlatformTest {
     clock.advance(6 * 86400);
     assignments.tick();
     rankings.notifyTies();
-    int size = db.list("select * from sms_outbox").size();
+    int size = db.list("select * from mail_outbox").size();
     rankings.notifyTies();
     assignments.tick();
-    assertThat(db.list("select * from sms_outbox")).hasSize(size);
-    assertThat(db.list("select * from sms_outbox where event_key like 'tie:%'")).hasSize(2);
+    assertThat(db.list("select * from mail_outbox")).hasSize(size);
+    assertThat(db.list("select * from mail_outbox where event_key like 'tie:%'")).hasSize(2);
   }
 
   @Test
@@ -1502,13 +1502,14 @@ class PlatformTest {
     assertThatThrownBy(() -> bootstrap.run(args)).isInstanceOf(ResponseStatusException.class);
     env.withProperty("OPERATOR_NAME", "Тестовый оператор")
         .withProperty("OPERATOR_CONTACT", "qa@example.invalid")
-        .withProperty("spring.datasource.url", "jdbc:postgresql://db/schitay")
-        .withProperty("app.sms-mode", "smsru")
-        .withProperty("app.sms-api-key", "test-not-a-real-key");
+        .withProperty("spring.datasource.url", "jdbc:h2:file:./data/test-prod")
+        .withProperty("app.mail-mode", "smtp")
+        .withProperty("app.mail-from", "mail@example.test")
+        .withProperty("spring.mail.host", "smtp.example.test");
     assertThatCode(() -> bootstrap.run(args)).doesNotThrowAnyException();
     env.withProperty("app.demo", "true");
     assertThatThrownBy(() -> bootstrap.run(args)).isInstanceOf(ResponseStatusException.class);
-    env.withProperty("app.demo", "false").withProperty("app.sms-mode", "local");
+    env.withProperty("app.demo", "false").withProperty("app.mail-mode", "local");
     assertThatThrownBy(() -> bootstrap.run(args)).isInstanceOf(ResponseStatusException.class);
   }
 }

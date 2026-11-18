@@ -95,31 +95,30 @@ public class Auth {
   @Transactional
   public Map<String, Object> register(Map<String, Object> body, String ip) {
     limits.check("register:" + ip, 10, 3600);
-    String phone = phone(text(body, "phone", 30)),
+    String email = email(text(body, "email", 254)),
         pass = password(body, "password", 6),
         name = text(body, "fullName", 150);
-    require(phone.matches("7[0-9]{10}"), "Введите 10 цифр после +7");
     require(
         b(body, "terms") && b(body, "personalData") && b(body, "participation"),
         "Подтвердите обязательные согласия");
     require(
-        db.maybe("select id from users where phone=?", phone).isEmpty(),
+        db.maybe("select id from users where email=?", email).isEmpty(),
         "Не удалось зарегистрироваться. Попробуйте вход или восстановление");
     String uid = id();
     db.run(
         "insert into"
-            + " users(id,phone,full_name,password_hash,role,sms_consent,ranking_consent,created_at)"
+            + " users(id,email,full_name,password_hash,role,email_consent,ranking_consent,created_at)"
             + " values(?,?,?,?,?,?,?,?)",
         uid,
-        phone,
+        email,
         name,
         passwords.encode(pass),
         "PARENT",
-        false,
+        b(body, "emailConsent"),
         b(body, "rankingConsent"),
         clock.instant());
     for (String c :
-        List.of("terms", "personalData", "participation", "rankingConsent"))
+        List.of("terms", "personalData", "participation", "emailConsent", "rankingConsent"))
       consent(uid, c, b(body, c));
     audit(uid, "REGISTER", uid, "Регистрация и согласия");
     return Map.of("ok", true);
@@ -127,14 +126,14 @@ public class Auth {
 
   @Transactional
   public Map<String, Object> login(Map<String, Object> body, HttpServletRequest request) {
-    String phone = phone(text(body, "phone", 30));
+    String email = email(text(body, "email", 254));
     limits.check("login-ip:" + request.getRemoteAddr(), 60, 900);
-    limits.check("login:" + phone, 10, 900);
-    var found = db.maybe("select * from users where phone=?", phone);
+    limits.check("login:" + email, 10, 900);
+    var found = db.maybe("select * from users where email=?", email);
     String hash = found.map(u -> s(u, "password_hash")).orElse(dummy);
     boolean match = passwords.matches(s(body, "password"), hash);
     if (!match || found.isEmpty() || !b(found.get(), "enabled"))
-      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Неверный телефон или пароль");
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Неверная почта или пароль");
     var u = found.get();
     var old = request.getSession(false);
     if (old != null) old.invalidate();
@@ -149,10 +148,10 @@ public class Auth {
   public void updateConsents(Map<String, Object> u, Map<String, Object> body) {
     parent(u);
     String uid = s(u, "id");
-    if (body.containsKey("smsConsent")) {
-      boolean granted = b(body, "smsConsent");
-      db.run("update users set sms_consent=? where id=?", granted, uid);
-      consent(uid, "smsConsent", granted);
+    if (body.containsKey("emailConsent")) {
+      boolean granted = b(body, "emailConsent");
+      db.run("update users set email_consent=? where id=?", granted, uid);
+      consent(uid, "emailConsent", granted);
     }
     if (body.containsKey("rankingConsent")) {
       boolean granted = b(body, "rankingConsent");
@@ -164,56 +163,56 @@ public class Auth {
 
   @Transactional
   public void requestOtp(Map<String, Object> body, String ip) {
-    String phone = phone(text(body, "phone", 30)),
+    String email = email(text(body, "email", 254)),
         purpose = choice(body, "purpose", "RESET");
     limits.check("otp-ip:" + ip, 20, 3600);
-    limits.check("otp:" + phone, 3, 600);
-    var user = db.maybe("select * from users where phone=? and enabled=true", phone);
+    limits.check("otp:" + email, 3, 600);
+    var user = db.maybe("select * from users where email=? and enabled=true", email);
     if (user.isEmpty()) return;
     String code = String.format("%06d", random.nextInt(1_000_000));
-    db.run("delete from otp where phone=? and purpose=?", phone, purpose);
+    db.run("delete from otp where email=? and purpose=?", email, purpose);
     db.run(
-        "insert into otp(phone,purpose,code_hash,expires_at) values(?,?,?,?)",
-        phone,
+        "insert into otp(email,purpose,code_hash,expires_at) values(?,?,?,?)",
+        email,
         purpose,
         passwords.encode(code),
         clock.instant().plusSeconds(600));
     queue(
         s(user.get(), "id"),
         "otp:" + id(),
-        "Считай: код " + code + ". Действует 10 минут. Никому не сообщайте.",
+        "Код восстановления доступа: " + code + ". Он действует 10 минут. Никому не сообщайте код.",
         true);
   }
 
   @Transactional(noRollbackFor = ResponseStatusException.class)
   public void verifyOtp(Map<String, Object> body) {
-    String phone = phone(text(body, "phone", 30)),
+    String email = email(text(body, "email", 254)),
         purpose = choice(body, "purpose", "RESET");
     String pass = password(body, "newPassword");
-    var row = db.maybe("select * from otp where phone=? and purpose=? for update", phone, purpose);
+    var row = db.maybe("select * from otp where email=? and purpose=? for update", email, purpose);
     if (row.isEmpty())
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Код недействителен");
     var r = row.get();
     require(
         n(r, "tries") < 5 && time(r, "expires_at").isAfter(clock.instant()),
         "Код истёк. Запросите новый");
-    db.run("update otp set tries=tries+1 where phone=? and purpose=?", phone, purpose);
+    db.run("update otp set tries=tries+1 where email=? and purpose=?", email, purpose);
     require(passwords.matches(s(body, "code"), s(r, "code_hash")), "Код недействителен");
     db.run(
-        "update users set password_hash=?,auth_version=auth_version+1 where phone=?",
+        "update users set password_hash=?,auth_version=auth_version+1 where email=?",
         passwords.encode(pass),
-        phone);
-    db.run("delete from otp where phone=? and purpose=?", phone, purpose);
-    var u = db.one("select id from users where phone=?", phone);
+        email);
+    db.run("delete from otp where email=? and purpose=?", email, purpose);
+    var u = db.one("select id from users where email=?", email);
     audit(s(u, "id"), "PASSWORD_RESET", s(u, "id"), "Пароль изменён по одноразовому коду");
   }
 
   void queue(String uid, String key, String body, boolean service) {
     var u = db.one("select * from users where id=?", uid);
-    if (!service && !b(u, "sms_consent")) return;
-    if (db.maybe("select id from sms_outbox where event_key=?", key).isPresent()) return;
+    if (!service && !b(u, "email_consent")) return;
+    if (db.maybe("select id from mail_outbox where event_key=?", key).isPresent()) return;
     db.run(
-        "insert into sms_outbox(id,user_id,event_key,body,service,status,next_at,created_at)"
+        "insert into mail_outbox(id,user_id,event_key,body,service,status,next_at,created_at)"
             + " values(?,?,?,?,?,'PENDING',?,?)",
         id(),
         uid,

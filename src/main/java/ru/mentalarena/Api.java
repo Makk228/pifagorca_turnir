@@ -291,7 +291,7 @@ public class Api {
   Object users(HttpServletRequest r) {
     auth.admin(auth.current(r));
     return db.list(
-        "select id,phone,full_name,role,enabled,created_at from users order by created_at"
+        "select id,email,full_name,role,enabled,created_at from users order by created_at"
             + " desc limit 500");
   }
 
@@ -328,11 +328,11 @@ public class Api {
             + " order by a.at desc limit 500");
   }
 
-  @GetMapping("/admin/sms")
-  Object sms(HttpServletRequest r) {
+  @GetMapping("/admin/mail")
+  Object mail(HttpServletRequest r) {
     auth.admin(auth.current(r));
     return db.list(
-        "select id,event_key,status,attempts,created_at,last_error from sms_outbox order by"
+        "select id,event_key,status,attempts,created_at,last_error from mail_outbox order by"
             + " created_at desc limit 200");
   }
 }

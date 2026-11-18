@@ -279,22 +279,12 @@ function publicHome() {
 function authScreen(mode = "login") {
   window.scrollTo(0, 0);
   const register = mode === "register";
-  const phone = register
-    ? `<div class="registration-phone-field">
-        <label for="registration-phone">Номер телефона</label>
-        <span class="phone-input">
-          <span class="phone-prefix" aria-hidden="true">+7</span>
-          <input id="registration-phone" name="phone" type="tel" inputmode="numeric"
-            autocomplete="tel-national" pattern="[0-9]{10}" required
-            placeholder="9000000000" aria-describedby="registration-phone-hint">
-        </span>
-        <span class="helper" id="registration-phone-hint">Введите 10 цифр после +7.</span>
-      </div>`
-    : field("phone", "Номер телефона", "tel", "", 'required autocomplete="tel" placeholder="+7 900 000-00-00"');
+  const email = field("email", "Электронная почта", "email", "", 'required maxlength="254" autocomplete="email" placeholder="name@example.ru"');
   const consents = register
     ? check("terms", 'Принимаю <a href="#legal" target="_blank">условия использования</a>', false, true)
       + check("personalData", 'Даю отдельное <a href="#legal" target="_blank">согласие на обработку персональных данных</a>', false, true)
       + check("participation", "Как законный представитель согласен на участие ребёнка в марафоне", false, true)
+      + check("emailConsent", "Хочу получать письма о заданиях и результатах")
       + check("rankingConsent", "Разрешаю показывать полные ФИО ребёнка участникам рейтинга")
     : "";
   $("#app").innerHTML = `<div class="auth-shell">${authArt()}
@@ -305,7 +295,7 @@ function authScreen(mode = "login") {
       <p>${register ? "Создайте аккаунт родителя. Профили детей добавим следующим шагом." : "Войдите, чтобы продолжить свой марафон."}</p>
       <form data-form="${register ? "register" : "login"}">
         ${register ? field("fullName", "Ваше имя и фамилия", "text", "", 'required maxlength="150" autocomplete="name"') : ""}
-        ${phone}
+        ${email}
         ${field("password", "Пароль", "password", "", register
           ? 'required minlength="6" autocomplete="new-password" aria-describedby="registration-password-hint"'
           : 'required autocomplete="current-password"')}
@@ -486,7 +476,7 @@ async function children() {
 }
 function profile() {
   shell(
-    `<div class="eyebrow">Настройки аккаунта</div><h1>Мой профиль</h1><div class="grid"><section class="panel"><h2>${esc(user.full_name)}</h2><p>+${esc(user.phone)} · ${labels[user.role]}</p><div class="section-head"><button class="outline" data-action="reset">Сменить пароль</button></div></section><section class="panel"><h2>Ваши согласия</h2>${user.role === "PARENT" ? `<form class="stack" data-form="consents">${check("rankingConsent", "Публикация полных ФИО ребёнка в рейтинге для участников марафона", user.ranking_consent)}<p class="helper">Согласие можно отозвать в любой момент.</p><div class="form-error" role="alert"></div><button>Сохранить согласия</button></form>` : '<p class="muted">Управление персональными данными — по обращению к оператору платформы.</p>'}</section></div>`,
+    `<div class="eyebrow">Настройки аккаунта</div><h1>Мой профиль</h1><div class="grid"><section class="panel"><h2>${esc(user.full_name)}</h2><p>${esc(user.email)} · ${labels[user.role]}</p><div class="section-head"><button class="outline" data-action="reset">Сменить пароль</button></div></section><section class="panel"><h2>Ваши согласия</h2>${user.role === "PARENT" ? `<form class="stack" data-form="consents">${check("emailConsent", "Получать письма о заданиях и результатах", user.email_consent)}${check("rankingConsent", "Публикация полных ФИО ребёнка в рейтинге для участников марафона", user.ranking_consent)}<p class="helper">Согласия можно отозвать в любой момент.</p><div class="form-error" role="alert"></div><button>Сохранить согласия</button></form>` : '<p class="muted">Управление персональными данными — по обращению к оператору платформы.</p>'}</section></div>`,
     "profile",
   );
 }
@@ -611,7 +601,7 @@ async function adminPage() {
   const rows = await api("/admin/" + currentAdminTab);
   let html;
   if (currentAdminTab === "users")
-    html = `<div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Роль</th><th>Статус</th><th></th></tr></thead><tbody>${rows.map((u) => `<tr><td>${esc(u.full_name)}</td><td>+${esc(u.phone)}</td><td>${labels[u.role]}</td><td>${u.enabled ? "Активен" : "Отключён"}</td><td>${u.id !== user.id ? `<button class="outline small" data-action="edit-user" data-id="${u.id}" data-role="${u.role}" data-enabled="${u.enabled}">Изменить</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
+    html = `<div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Почта</th><th>Роль</th><th>Статус</th><th></th></tr></thead><tbody>${rows.map((u) => `<tr><td>${esc(u.full_name)}</td><td>${esc(u.email)}</td><td>${labels[u.role]}</td><td>${u.enabled ? "Активен" : "Отключён"}</td><td>${u.id !== user.id ? `<button class="outline small" data-action="edit-user" data-id="${u.id}" data-role="${u.role}" data-enabled="${u.enabled}">Изменить</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
   else if (currentAdminTab === "marathons")
     html = rows.length
       ? `<div class="table-wrap"><table><thead><tr><th>Марафон</th><th>Дата начала</th><th>Статус</th><th></th></tr></thead><tbody>${rows.map((m) => `<tr><td><strong>${esc(m.title)}</strong><div class="helper">${esc(m.description)}</div></td><td>${date(m.start_date + "T12:00:00")}</td><td>${pill(m.effective_status)}</td><td><div class="actions"><a class="button outline small" href="#marathon/${m.id}">Открыть</a><button class="danger small" data-action="delete-marathon" data-id="${esc(m.id)}" data-name="${esc(m.title)}">Удалить</button></div></td></tr>`).join("")}</tbody></table></div>`
@@ -623,7 +613,7 @@ async function adminPage() {
       ["users", "Пользователи"],
       ["marathons", "Марафоны"],
       ["audit", "Журнал действий"],
-      ["sms", "SMS-очередь"],
+      ["mail", "Почтовая очередь"],
     ]
       .map(
         ([v, t]) =>
@@ -828,7 +818,7 @@ async function joinDialog() {
 }
 function otpDialog() {
   modal(
-    `<h2>Восстановить доступ</h2><p class="muted">Мы отправим запрошенный вами сервисный код. Он действует 10 минут.</p><form class="stack" data-form="otp-request"><input type="hidden" name="purpose" value="RESET">${field("phone", "Номер телефона", "tel", user?.phone || "", 'required autocomplete="tel"')}<div class="form-error" role="alert"></div><button>Получить код</button></form>`,
+    `<h2>Восстановить доступ</h2><p class="muted">Мы отправим запрошенный вами сервисный код. Он действует 10 минут.</p><form class="stack" data-form="otp-request"><input type="hidden" name="purpose" value="RESET">${field("email", "Электронная почта", "email", user?.email || "", 'required maxlength="254" autocomplete="email"')}<div class="form-error" role="alert"></div><button>Получить код</button></form>`,
   );
 }
 function marathonDialog() {
@@ -1155,7 +1145,7 @@ async function legal() {
     config = await api("/public-config");
   } catch {}
   $("#app").innerHTML =
-    `<main id="main" class="legal"><a class="brand" href="#home">Считай.</a><h1 class="history">Документы и согласия</h1><p>Версия от 5 ноября 2026 года. Оператор: ${esc(config.operator)}. Контакт для обращений: ${esc(config.contact)}.</p><h2>Условия использования</h2><p>Платформа проводит образовательные марафоны. Родитель действует как законный представитель ребёнка, указывает достоверные сведения и обеспечивает доступ ребёнка только через свой аккаунт. Организатор определяет расписание, задания и порядок очной встречи при равных баллах. Один верный ответ приносит один балл; ошибки и пропуски учитываются отдельно.</p><h2>Согласие на обработку данных</h2><p>Отдельной отметкой при регистрации родитель разрешает оператору обрабатывать свои имя, фамилию и телефон, а также ФИО, дату или год рождения, пол, категорию, ответы и результаты ребёнка для регистрации, проведения марафона, проверки работ и связи по вопросам участия. Операции: сбор, запись, хранение, уточнение, использование и удаление с применением автоматизации. Пароль хранится в виде защищённого хеша.</p><p>Согласие действует до отзыва. Для отзыва обязательного согласия, получения копии данных или удаления аккаунта обратитесь к оператору по указанному контакту. После отзыва участие прекращается; оператор удаляет данные, кроме подлежащих обязательному хранению. В резервных копиях удаление происходит при плановом истечении их срока хранения.</p><h2>Согласие на участие</h2><p>Отдельной отметкой законный представитель разрешает ребёнку участвовать в марафонах и подтверждает правила выполнения: ограничение времени, автоматическая проверка, невозможность редактировать отправленную работу, повторное открытие только после подтверждённого технического сбоя.</p><h2>SMS-уведомления — по желанию</h2><p>Отдельная необязательная отметка разрешает передавать телефон и текст уведомления сервису SMS.RU и отправлять сообщения о ходе марафона, включая открытие задания в 00:00. Сервисные коды восстановления пароля отправляются только по отдельному запросу пользователя.</p><h2>Публикация рейтинга — по желанию</h2><p>Отдельная необязательная отметка разрешает показывать полные ФИО, категорию и результаты ребёнка авторизованным участникам этого марафона после публикации рейтинга организатором. При отказе или отзыве ФИО заменяются подписью «Участник без публикации ФИО». Педагог и администратор видят данные для организации обучения.</p><h2>Хранение и безопасность</h2><p>Используются серверная проверка доступа, защищённые сессии, журнал действий и резервное копирование. Технические сессии необходимы для работы сайта. Данные не используются для рекламы. Вопросы обработки данных и удаления направляйте оператору.</p><a class="button" href="#home">Вернуться в кабинет</a></main>`;
+    `<main id="main" class="legal"><a class="brand" href="#home">Считай.</a><h1 class="history">Документы и согласия</h1><p>Версия от 19 ноября 2026 года. Оператор: ${esc(config.operator)}. Контакт для обращений: ${esc(config.contact)}.</p><h2>Условия использования</h2><p>Платформа проводит образовательные марафоны. Родитель действует как законный представитель ребёнка, указывает достоверные сведения и обеспечивает доступ ребёнка только через свой аккаунт. Организатор определяет расписание, задания и порядок очной встречи при равных баллах. Один верный ответ приносит один балл; ошибки и пропуски учитываются отдельно.</p><h2>Согласие на обработку данных</h2><p>Отдельной отметкой при регистрации родитель разрешает оператору обрабатывать свои имя, фамилию и адрес электронной почты, а также ФИО, дату или год рождения, пол, категорию, ответы и результаты ребёнка для регистрации, проведения марафона, проверки работ и связи по вопросам участия. Операции: сбор, запись, хранение, уточнение, использование и удаление с применением автоматизации. Пароль хранится в виде защищённого хеша.</p><p>Согласие действует до отзыва. Для отзыва обязательного согласия, получения копии данных или удаления аккаунта обратитесь к оператору по указанному контакту. После отзыва участие прекращается; оператор удаляет данные, кроме подлежащих обязательному хранению. В резервных копиях удаление происходит при плановом истечении их срока хранения.</p><h2>Согласие на участие</h2><p>Отдельной отметкой законный представитель разрешает ребёнку участвовать в марафонах и подтверждает правила выполнения: ограничение времени, автоматическая проверка, невозможность редактировать отправленную работу, повторное открытие только после подтверждённого технического сбоя.</p><h2>Письма — по желанию</h2><p>Отдельная необязательная отметка разрешает отправлять письма о ходе марафона, включая открытие задания. Сервисные коды восстановления пароля отправляются только по отдельному запросу пользователя.</p><h2>Публикация рейтинга — по желанию</h2><p>Отдельная необязательная отметка разрешает показывать полные ФИО, категорию и результаты ребёнка авторизованным участникам этого марафона после публикации рейтинга организатором. При отказе или отзыве ФИО заменяются подписью «Участник без публикации ФИО». Педагог и администратор видят данные для организации обучения.</p><h2>Хранение и безопасность</h2><p>Используются серверная проверка доступа, защищённые сессии, журнал действий и резервное копирование. Технические сессии необходимы для работы сайта. Данные не используются для рекламы. Вопросы обработки данных и удаления направляйте оператору.</p><a class="button" href="#home">Вернуться в кабинет</a></main>`;
 }
 document.addEventListener("click", async (ev) => {
   const el = ev.target.closest("[data-action]");
@@ -1376,9 +1366,8 @@ document.addEventListener("submit", async (ev) => {
         nav("home");
         break;
       case "register":
-        b.phone = "+7" + b.phone;
         await api("/register", "POST", b);
-        await api("/login", "POST", { phone: b.phone, password: b.password });
+        await api("/login", "POST", { email: b.email, password: b.password });
         await session();
         nav("home");
         toast("Аккаунт создан");
@@ -1423,7 +1412,7 @@ document.addEventListener("submit", async (ev) => {
       case "otp-request":
         await api("/otp/request", "POST", b);
         $("#dialog-content").innerHTML =
-          `<h2>Введите код из SMS</h2><p class="helper">Если номер зарегистрирован, код отправлен. В локальном режиме сообщение находится в тестовой очереди.</p><form class="stack" data-form="otp-verify"><input type="hidden" name="phone" value="${esc(b.phone)}"><input type="hidden" name="purpose" value="RESET">${field("code", "Код из 6 цифр", "text", "", 'required pattern="[0-9]{6}" maxlength="6" inputmode="numeric" autocomplete="one-time-code"')}${field("newPassword", "Новый пароль", "password", "", 'required minlength="10" autocomplete="new-password"')}<div class="form-error" role="alert"></div><button>Подтвердить</button></form>`;
+          `<h2>Введите код из письма</h2><p class="helper">Если адрес зарегистрирован, код отправлен. В локальном режиме сообщение находится в тестовой очереди.</p><form class="stack" data-form="otp-verify"><input type="hidden" name="email" value="${esc(b.email)}"><input type="hidden" name="purpose" value="RESET">${field("code", "Код из 6 цифр", "text", "", 'required pattern="[0-9]{6}" maxlength="6" inputmode="numeric" autocomplete="one-time-code"')}${field("newPassword", "Новый пароль", "password", "", 'required minlength="10" autocomplete="new-password"')}<div class="form-error" role="alert"></div><button>Подтвердить</button></form>`;
         break;
       case "otp-verify":
         await api("/otp/verify", "POST", b);
@@ -1565,12 +1554,6 @@ document.addEventListener("submit", async (ev) => {
   }
 });
 document.addEventListener("input", (e) => {
-  if (e.target.id === "registration-phone") {
-    const digits = e.target.value.replace(/[^0-9]/g, "");
-    const fullNumber = e.inputType === "insertFromPaste" || e.target.value.trim().startsWith("+7");
-    const nationalNumber = fullNumber && /^[78][0-9]{10}$/.test(digits) ? digits.slice(1) : digits;
-    if (e.target.value !== nationalNumber) e.target.value = nationalNumber;
-  }
   if (e.target.matches(".answer")) {
     updateProgress();
     clearTimeout(debounce);

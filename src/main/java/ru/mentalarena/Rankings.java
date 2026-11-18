@@ -208,7 +208,7 @@ public class Rankings {
       for (var r : calculate(m)) {
         if (!b(r, "tie") || r.get("deleted_at") != null) continue;
         String key = "tie:" + mid + ":" + s(r, "child_id") + ":" + n(r, "score");
-        if (db.maybe("select id from sms_outbox where event_key like ? limit 1", key + ":%")
+        if (db.maybe("select id from mail_outbox where event_key like ? limit 1", key + ":%")
             .isPresent()) continue;
         auth.queue(
             s(r, "parent_id"),

@@ -46,11 +46,13 @@ public final class Input {
     return v;
   }
 
-  public static String phone(String v) {
-    String p = v.replaceAll("[ ()+-]", "");
-    if (p.startsWith("8") && p.length() == 11) p = "7" + p.substring(1);
-    require(p.matches("[1-9][0-9]{9,14}"), "Укажите телефон в международном формате");
-    return p;
+  public static String email(String value) {
+    String email = value.trim().toLowerCase(Locale.ROOT);
+    require(
+        email.length() <= 254
+            && email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"),
+        "Укажите корректный адрес электронной почты");
+    return email;
   }
 
   public static String password(Map<String, Object> m, String key) {

@@ -12,7 +12,7 @@ public class SecurityConfig {
   org.springframework.security.core.userdetails.UserDetailsService unusedUsers() {
     return name -> {
       throw new org.springframework.security.core.userdetails.UsernameNotFoundException(
-          "Use phone login");
+          "Use email login");
     };
   }
 

@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: ${DATABASE_URL}
-    username: ${DATABASE_USER}
-    password: ${DATABASE_PASSWORD}
+    url: ${DATABASE_URL:jdbc:h2:file:/app/data/schitay;NON_KEYWORDS=DAY,VALUE;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
+    username: ${DATABASE_USER:sa}
+    password: ${DATABASE_PASSWORD:}
 server:
   forward-headers-strategy: framework
   servlet:
@@ -10,5 +10,5 @@ server:
       cookie:
         secure: true
 app:
-  sms-mode: ${SMS_MODE:smsru}
+  mail-mode: ${MAIL_MODE:smtp}
   demo: false

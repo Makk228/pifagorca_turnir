@@ -9,12 +9,12 @@ import org.springframework.stereotype.Component;
 public class Jobs {
   final Assignments assignments;
   final Rankings rankings;
-  final Sms sms;
+  final MailDelivery mail;
 
-  Jobs(Assignments assignments, Rankings rankings, Sms sms) {
+  Jobs(Assignments assignments, Rankings rankings, MailDelivery mail) {
     this.assignments = assignments;
     this.rankings = rankings;
-    this.sms = sms;
+    this.mail = mail;
   }
 
   @Scheduled(fixedDelay = 15000)
@@ -29,6 +29,6 @@ public class Jobs {
 
   @Scheduled(fixedDelay = 10000, initialDelay = 5000)
   public void messages() {
-    sms.deliver();
+    mail.deliver();
   }
 }

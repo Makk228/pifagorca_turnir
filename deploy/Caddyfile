@@ -10,7 +10,7 @@
 		-Server
 	}
 	request_body {
-		max_size 3MB
+		max_size 11MB
 	}
 	reverse_proxy app:8080
 }

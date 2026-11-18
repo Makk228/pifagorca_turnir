@@ -37,7 +37,7 @@ public class Bootstrap implements ApplicationRunner {
   @Transactional
   public void run(ApplicationArguments args) {
     boolean prod = Arrays.asList(env.getActiveProfiles()).contains("prod");
-    String phone = env.getProperty("app.admin-phone", ""),
+    String email = env.getProperty("app.admin-email", ""),
         password = env.getProperty("app.admin-password", "");
     if (prod) {
       require(
@@ -45,36 +45,37 @@ public class Bootstrap implements ApplicationRunner {
               && !env.getProperty("OPERATOR_CONTACT", "").isBlank(),
           "Укажите OPERATOR_NAME и OPERATOR_CONTACT");
       require(
-          env.getProperty("spring.datasource.url", "").startsWith("jdbc:postgresql:"),
-          "Production требует PostgreSQL");
+          env.getProperty("spring.datasource.url", "").startsWith("jdbc:h2:file:"),
+          "Лёгкая production-версия требует файловую H2");
       require(
-          env.getProperty("app.sms-mode", "").equals("smsru")
-              && !env.getProperty("app.sms-api-key", "").isBlank(),
-          "Production требует SMS_API_KEY и SMS_MODE=smsru");
+          env.getProperty("app.mail-mode", "").equals("smtp")
+              && !env.getProperty("spring.mail.host", "").isBlank()
+              && !env.getProperty("app.mail-from", "").isBlank(),
+          "Production требует SMTP_HOST, MAIL_FROM и MAIL_MODE=smtp");
       require(!env.getProperty("app.demo", Boolean.class, false), "Демо запрещено в production");
     }
-    if (!phone.isBlank()) {
+    if (!email.isBlank()) {
       Input.password(Map.of("p", password), "p");
-      user(Input.phone(phone), "Администратор", password, "ADMIN");
+      user(Input.email(email), "Администратор", password, "ADMIN");
     }
     if (prod)
       require(
           db.maybe("select id from users where role='ADMIN' and enabled=true").isPresent(),
-          "Для первого запуска нужны ADMIN_PHONE и ADMIN_PASSWORD");
+          "Для первого запуска нужны ADMIN_EMAIL и ADMIN_PASSWORD");
     if (env.getProperty("app.demo", Boolean.class, false)
-        && db.maybe("select id from users where phone='79000000001'").isEmpty()) demo();
+        && db.maybe("select id from users where email='parent@example.test'").isEmpty()) demo();
   }
 
-  String user(String phone, String name, String password, String role) {
-    var exists = db.maybe("select id from users where phone=?", phone);
+  String user(String email, String name, String password, String role) {
+    var exists = db.maybe("select id from users where email=?", email);
     if (exists.isPresent()) return s(exists.get(), "id");
     String uid = id();
     db.run(
         "insert into"
-            + " users(id,phone,full_name,password_hash,role,enabled,sms_consent,ranking_consent,created_at)"
+            + " users(id,email,full_name,password_hash,role,enabled,email_consent,ranking_consent,created_at)"
             + " values(?,?,?,?,?,true,false,true,?)",
         uid,
-        phone,
+        email,
         name,
         auth.hashPassword(password),
         role,
@@ -83,9 +84,9 @@ public class Bootstrap implements ApplicationRunner {
   }
 
   void demo() {
-    String parentId = user("79000000001", "Анна Соколова", "DemoParent2026!", "PARENT"),
-        teacherId = user("79000000002", "Мария Орлова", "DemoTeacher2026!", "TEACHER");
-    user("79000000003", "Администратор демо", "DemoAdmin2026!", "ADMIN");
+    String parentId = user("parent@example.test", "Анна Соколова", "DemoParent2026!", "PARENT"),
+        teacherId = user("teacher@example.test", "Мария Орлова", "DemoTeacher2026!", "TEACHER");
+    user("admin@example.test", "Администратор демо", "DemoAdmin2026!", "ADMIN");
     var parent = db.one("select * from users where id=?", parentId);
     var teacher = db.one("select * from users where id=?", teacherId);
     LocalDate today = LocalDate.now(clock.withZone(ZoneId.of("Europe/Moscow")));

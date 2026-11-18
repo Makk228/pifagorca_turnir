@@ -1,42 +1,25 @@
 name: schitay
 services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: schitay
-      POSTGRES_USER: schitay
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [CMD-SHELL, "pg_isready -U schitay -d schitay"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-    networks: [internal]
   app:
     build: .
     environment:
       SPRING_PROFILES_ACTIVE: prod
-      DATABASE_URL: jdbc:postgresql://db:5432/schitay
-      DATABASE_USER: schitay
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD}
-      ADMIN_PHONE: ${ADMIN_PHONE:?Set ADMIN_PHONE}
+      DATABASE_URL: jdbc:h2:file:/app/data/schitay;NON_KEYWORDS=DAY,VALUE;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
-      SMS_MODE: smsru
-      SMS_API_KEY: ${SMS_API_KEY:?Set SMS_API_KEY}
+      MAIL_MODE: smtp
+      MAIL_FROM: ${MAIL_FROM:?Set MAIL_FROM}
+      SMTP_HOST: ${SMTP_HOST:?Set SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       OPERATOR_NAME: ${OPERATOR_NAME:?Set OPERATOR_NAME}
       OPERATOR_CONTACT: ${OPERATOR_CONTACT:?Set OPERATOR_CONTACT}
-    depends_on:
-      db:
-        condition: service_healthy
+    volumes: [app_data:/app/data]
     healthcheck:
-      test:
-        [
-          CMD-SHELL,
-          "wget -q -O - http://127.0.0.1:8080/actuator/health | grep -q UP",
-        ]
+      test: [CMD-SHELL, "wget -q -O - http://127.0.0.1:8080/actuator/health | grep -q UP"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -45,7 +28,7 @@ services:
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    mem_limit: 1g
+    mem_limit: 768m
     restart: unless-stopped
     networks: [internal, outbound]
   caddy:
@@ -68,6 +51,7 @@ networks:
     internal: true
   outbound: {}
 volumes:
-  postgres_data: {}
+  app_data:
+    name: schitay_app_data
   caddy_data: {}
   caddy_config: {}

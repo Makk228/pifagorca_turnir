@@ -5,11 +5,11 @@ Base: `/api`. JSON UTF-8. Cookie session; GET `/api/session` возвращае�
 | Метод | Путь | Контракт |
 |---|---|---|
 | GET | /session | user nullable, csrfToken, serverTime, competitionCategories (code, label, preschoolOnly) |
-| POST | /register | fullName,phone (+7 и 10 цифр),password (от 6 символов),terms,personalData,participation,rankingConsent |
-| POST | /login | phone,password; устанавливает сессию |
+| POST | /register | fullName,email,password (от 6 символов),terms,personalData,participation,emailConsent,rankingConsent |
+| POST | /login | email,password; устанавливает сессию |
 | POST | /logout | завершает сессию |
-| POST | /otp/request | phone,purpose RESET. Одинаковый ответ для существующего и неизвестного телефона |
-| POST | /otp/verify | phone,purpose RESET,code,newPassword |
+| POST | /otp/request | email,purpose RESET. Одинаковый ответ для существующего и неизвестного адреса |
+| POST | /otp/verify | email,purpose RESET,code,newPassword |
 | GET | /dashboard | доступные дети, марафоны, назначения |
 | POST | /children | lastName, firstName, middleName, birthDate (ГГГГ-ММ-ДД), category, gender (MALE/FEMALE). Для старых клиентов принимается birthYear |
 | PATCH | /children/{id}/gender | gender (MALE/FEMALE). Доступно родителю ребёнка |
@@ -44,7 +44,7 @@ Base: `/api`. JSON UTF-8. Cookie session; GET `/api/session` возвращае�
 | GET | /admin/marathons | администратор: все марафоны для просмотра и удаления |
 | PATCH | /admin/users/{id} | role,enabled |
 | GET | /admin/audit | последние 500 событий |
-| GET | /admin/sms | последние 200 доставок без кодов OTP |
+| GET | /admin/mail | последние 200 доставок без текста писем и кодов OTP |
 
 ## CSV-библиотека
 Заголовок: `category,topic,level,expression,answer`. Категория BABY/SCHOOL, level BASIC/MEDIUM/HARD. Выражение — отображаемый текст (не исполняется), answer — целое в диапазоне Java int. UTF-8 с необязательным BOM, запятая, RFC 4180 quoting. ≤ 2 МБ / 10 000 строк; expression ≤ 200 символов. Пустые файлы, неизвестные поля/уровни и некорректные строки отклоняются. Случайный выбор SecureRandom, без повторов expression+answer даже между библиотеками. Отбор по категории ребёнка обязателен.
