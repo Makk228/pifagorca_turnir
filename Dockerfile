@@ -4,7 +4,9 @@ COPY pom.xml .
 COPY src src
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q verify
 FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S app && adduser -S app -G app && mkdir -p /app/data && chown app:app /app/data
+RUN addgroup -S app && adduser -S app -G app \
+    && mkdir -p /app/data /data \
+    && chown -R app:app /app/data /data
 WORKDIR /app
 COPY --from=build --chown=app:app /workspace/target/schitay-1.0.0.jar app.jar
 USER app
