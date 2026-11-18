@@ -71,6 +71,8 @@ scripts/test.sh
 
 [Полная инструкция](docs/DEPLOYMENT.md). Подготовлены `compose.yml`, Dockerfile, Caddy, `.env.example`, healthchecks, backup и restore. Для реальной рассылки нужны домен и SMTP-аккаунт.
 
+Для бесплатного теста можно использовать отдельный ящик Яндекса. Создайте пароль приложения и задайте SMTP-переменные: `SMTP_HOST=smtp.yandex.ru`, `SMTP_PORT=465`, `SMTP_AUTH=true`, `SMTP_STARTTLS=false`, `SMTP_SSL=true`; `MAIL_FROM` и `SMTP_USERNAME` должны содержать полный адрес одного и того же ящика. Пароль приложения передаётся только через секрет `SMTP_PASSWORD`.
+
 ## Документация
 
 - [План](docs/PLAN.md), [сценарии](docs/SCENARIOS.md), [исходное ТЗ](docs/ORIGINAL-SPEC.txt).

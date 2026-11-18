@@ -15,6 +15,7 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_AUTH: ${SMTP_AUTH:-true}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_SSL: ${SMTP_SSL:-false}
       OPERATOR_NAME: ${OPERATOR_NAME:?Set OPERATOR_NAME}
       OPERATOR_CONTACT: ${OPERATOR_CONTACT:?Set OPERATOR_CONTACT}
     volumes: [app_data:/app/data]
