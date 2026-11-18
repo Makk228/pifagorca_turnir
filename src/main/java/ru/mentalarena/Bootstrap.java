@@ -71,8 +71,8 @@ public class Bootstrap implements ApplicationRunner {
     String uid = id();
     db.run(
         "insert into"
-            + " users(id,phone,full_name,password_hash,role,enabled,verified,sms_consent,ranking_consent,created_at)"
-            + " values(?,?,?,?,?,true,true,false,true,?)",
+            + " users(id,phone,full_name,password_hash,role,enabled,sms_consent,ranking_consent,created_at)"
+            + " values(?,?,?,?,?,true,false,true,?)",
         uid,
         phone,
         name,
@@ -88,6 +88,7 @@ public class Bootstrap implements ApplicationRunner {
     user("79000000003", "Администратор демо", "DemoAdmin2026!", "ADMIN");
     var parent = db.one("select * from users where id=?", parentId);
     var teacher = db.one("select * from users where id=?", teacherId);
+    LocalDate today = LocalDate.now(clock.withZone(ZoneId.of("Europe/Moscow")));
     var child =
         marathons.child(
             parent,
@@ -98,10 +99,12 @@ public class Bootstrap implements ApplicationRunner {
                 "Артём",
                 "middleName",
                 "",
-                "birthYear",
-                LocalDate.now(clock).getYear() - 8,
+                "birthDate",
+                today.minusYears(8).toString(),
                 "category",
-                "SCHOOL"));
+                "SCHOOL",
+                "gender",
+                "MALE"));
     var child2 =
         marathons.child(
             parent,
@@ -112,10 +115,12 @@ public class Bootstrap implements ApplicationRunner {
                 "София",
                 "middleName",
                 "",
-                "birthYear",
-                LocalDate.now(clock).getYear() - 6,
+                "birthDate",
+                today.minusYears(6).toString(),
                 "category",
-                "BABY"));
+                "BABY",
+                "gender",
+                "FEMALE"));
     var marathon =
         marathons.create(
             teacher,
@@ -126,7 +131,7 @@ public class Bootstrap implements ApplicationRunner {
                 "Шесть дней маленьких открытий и больших побед. Считаем в своём темпе и становимся"
                     + " увереннее каждый день.",
                 "startDate",
-                LocalDate.now(clock.withZone(ZoneId.of("Europe/Moscow"))).toString(),
+                today.toString(),
                 "days",
                 6,
                 "timezone",
@@ -135,10 +140,10 @@ public class Bootstrap implements ApplicationRunner {
                 true));
     marathons.update(teacher, s(marathon, "id"), Map.of("status", "SCHEDULED"));
     for (var c : List.of(child, child2))
-      db.run("insert into enrollments values(?,?)", s(marathon, "id"), s(c, "id"));
+      db.run("insert into enrollments(marathon_id,child_id) values(?,?)", s(marathon, "id"), s(c, "id"));
     String lid = id();
     db.run(
-        "insert into libraries values(?,?,?,?)",
+        "insert into libraries(id,owner_id,name,created_at) values(?,?,?,?)",
         lid,
         teacherId,
         "Сложение и вычитание · старт",
@@ -148,7 +153,8 @@ public class Bootstrap implements ApplicationRunner {
         int a = cat.equals("BABY") ? i % 10 : i;
         int b = i / 10 + 1;
         db.run(
-            "insert into library_examples values(?,?,?,?,?,?,?)",
+            "insert into library_examples(id,library_id,category,topic,level,expression,answer)"
+                + " values(?,?,?,?,?,?,?)",
             id(),
             lid,
             cat,

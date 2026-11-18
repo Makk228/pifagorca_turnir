@@ -380,6 +380,9 @@ p {
 .section-head h2 {
   margin: 0;
 }
+.ranking-group + .ranking-group {
+  margin-top: 24px;
+}
 .row {
   display: flex;
   align-items: center;
@@ -403,6 +406,21 @@ p {
 .row-main {
   min-width: 0;
   flex: 1;
+}
+.participant-competition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  max-width: 490px;
+  margin-top: 10px;
+}
+.participant-competition label {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.participant-competition .form-error:not(:empty) {
+  flex-basis: 100%;
 }
 .row .avatar {
   width: 48px;
@@ -596,6 +614,37 @@ tr:last-child td {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+.exercise.vertical {
+  align-items: flex-end;
+}
+.vertical-expression {
+  flex: 1;
+  max-width: 150px;
+  display: grid;
+  justify-content: end;
+  font-size: 25px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.vertical-number {
+  display: grid;
+  grid-template-columns: 24px minmax(48px, auto);
+  justify-content: end;
+  text-align: right;
+}
+.vertical-number > span {
+  text-align: center;
+  font-weight: 500;
+}
+.vertical-number strong {
+  font-weight: 600;
+}
+.vertical-rule {
+  display: block;
+  border-top: 2px solid currentColor;
+  margin-top: 5px;
+  width: 100%;
+}
 .task-footer {
   margin: 30px 0;
   display: flex;
@@ -639,6 +688,40 @@ tr:last-child td {
 .auth-main {
   padding: 55px 13%;
   align-self: center;
+}
+.auth-home-link {
+  margin-bottom: 28px;
+}
+.registration-phone-field {
+  display: grid;
+  gap: 7px;
+}
+.phone-input {
+  position: relative;
+  display: block;
+}
+.phone-input input {
+  padding-left: 44px;
+}
+.phone-prefix {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.home-features {
+  margin: 24px 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+.home-features li + li {
+  margin-top: 10px;
+}
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .auth-main h2 {
   font-size: 38px;
@@ -693,6 +776,9 @@ dialog {
   width: min(640px, calc(100% - 30px));
   max-height: 90vh;
 }
+dialog:has([data-form="generate"]) {
+  width: min(980px, calc(100% - 30px));
+}
 dialog::backdrop {
   background: #092a2180;
   backdrop-filter: blur(3px);
@@ -736,6 +822,50 @@ dialog .close {
   display: grid;
   gap: 13px;
 }
+.select-list[hidden] {
+  display: none;
+}
+.recipe-groups {
+  display: grid;
+  gap: 18px;
+}
+.recipe-panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--paper);
+}
+.recipe-panel .section-head {
+  margin: 0 0 14px;
+}
+.recipe-panel .section-head p {
+  margin: 3px 0 0;
+}
+.recipe-rows {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 13px;
+}
+.recipe-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.35fr 0.8fr auto;
+  align-items: end;
+  gap: 9px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.recipe-row label {
+  font-size: 12px;
+}
+.recipe-row select,
+.recipe-row input {
+  min-height: 42px;
+  padding: 8px 10px;
+}
+.recipe-row .recipe-remove {
+  color: var(--red);
+  margin-bottom: 5px;
+}
 .filter-bar {
   display: flex;
   gap: 15px;
@@ -753,6 +883,9 @@ dialog .close {
   padding: 0;
   min-height: 30px;
   text-decoration: underline;
+}
+.child-remove {
+  color: var(--red);
 }
 .helper {
   font-size: 13px;
@@ -938,6 +1071,12 @@ footer {
   }
   .form-grid {
     grid-template-columns: 1fr;
+  }
+  .recipe-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .recipe-row .recipe-remove {
+    justify-self: start;
   }
   .form-grid .wide {
     grid-column: auto;

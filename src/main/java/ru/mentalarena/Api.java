@@ -59,6 +59,7 @@ public class Api {
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("csrfToken", csrf.getToken());
     out.put("serverTime", clock.instant());
+    out.put("competitionCategories", CompetitionCategory.options());
     try {
       out.put("user", auth.safe(auth.current(req)));
     } catch (org.springframework.web.server.ResponseStatusException e) {
@@ -111,6 +112,26 @@ public class Api {
     return marathons.child(auth.current(r), b);
   }
 
+  @PatchMapping("/children/{cid}/gender")
+  Object childGender(
+      @PathVariable String cid, @RequestBody Map<String, Object> b, HttpServletRequest r) {
+    marathons.updateChildGender(auth.current(r), cid, b);
+    return Map.of("ok", true);
+  }
+
+  @PatchMapping("/children/{cid}/birth-date")
+  Object childBirthDate(
+      @PathVariable String cid, @RequestBody Map<String, Object> b, HttpServletRequest r) {
+    marathons.updateChildBirthDate(auth.current(r), cid, b);
+    return Map.of("ok", true);
+  }
+
+  @DeleteMapping("/children/{cid}")
+  Object deleteChild(@PathVariable String cid, HttpServletRequest r) {
+    marathons.deleteChild(auth.current(r), cid);
+    return Map.of("ok", true);
+  }
+
   @PostMapping("/join")
   Object join(@RequestBody Map<String, Object> b, HttpServletRequest r) {
     auth.checkLimit("join:" + s(auth.current(r), "id"), 20, 600);
@@ -135,10 +156,34 @@ public class Api {
     return Map.of("ok", true);
   }
 
+  @DeleteMapping("/marathons/{mid}")
+  Object deleteMarathon(@PathVariable String mid, HttpServletRequest r) {
+    marathons.delete(auth.current(r), mid);
+    return Map.of("ok", true);
+  }
+
+  @PostMapping("/marathons/{mid}/syllabus")
+  Object uploadSyllabus(
+      @PathVariable String mid, @RequestParam MultipartFile file, HttpServletRequest r)
+      throws IOException {
+    return marathons.uploadSyllabus(auth.current(r), mid, file);
+  }
+
   @PostMapping("/marathons/{mid}/teachers")
   Object teacher(
       @PathVariable String mid, @RequestBody Map<String, Object> b, HttpServletRequest r) {
-    marathons.teacher(auth.current(r), mid, text(b, "userId", 36));
+    List<String> userIds = b.get("userIds") instanceof List<?>
+        ? ids(b, "userIds")
+        : List.of(text(b, "userId", 36));
+    marathons.teachers(auth.current(r), mid, userIds);
+    return Map.of("ok", true);
+  }
+
+  @PatchMapping("/marathons/{mid}/participants/{cid}/competition-category")
+  Object competitionCategory(
+      @PathVariable String mid, @PathVariable String cid,
+      @RequestBody Map<String, Object> b, HttpServletRequest r) {
+    marathons.updateCompetitionCategory(auth.current(r), mid, cid, b);
     return Map.of("ok", true);
   }
 
@@ -148,9 +193,16 @@ public class Api {
   }
 
   @PostMapping("/libraries")
-  Object upload(@RequestParam String name, @RequestParam MultipartFile file, HttpServletRequest r)
+  Object upload(@RequestParam String name, @RequestParam MultipartFile file,
+      @RequestParam(defaultValue = "") String competitionCategory, HttpServletRequest r)
       throws IOException {
-    return libraries.upload(auth.current(r), name, file);
+    return libraries.upload(auth.current(r), name, competitionCategory, file);
+  }
+
+  @DeleteMapping("/libraries/{lid}")
+  Object deleteLibrary(@PathVariable String lid, HttpServletRequest r) {
+    libraries.delete(auth.current(r), lid);
+    return Map.of("ok", true);
   }
 
   @PostMapping("/marathons/{mid}/generate")
@@ -173,6 +225,13 @@ public class Api {
   @GetMapping("/assignments/{aid}")
   Object assignment(@PathVariable String aid, HttpServletRequest r) {
     return assignments.get(auth.current(r), aid);
+  }
+
+  @PutMapping("/assignments/{aid}")
+  Object updateAssignment(
+      @PathVariable String aid, @RequestBody Map<String, Object> b, HttpServletRequest r) {
+    assignments.update(auth.current(r), aid, b);
+    return Map.of("ok", true);
   }
 
   @PostMapping("/assignments/{aid}/start")
@@ -232,8 +291,15 @@ public class Api {
   Object users(HttpServletRequest r) {
     auth.admin(auth.current(r));
     return db.list(
-        "select id,phone,full_name,role,enabled,verified,created_at from users order by created_at"
+        "select id,phone,full_name,role,enabled,created_at from users order by created_at"
             + " desc limit 500");
+  }
+
+  @GetMapping("/admin/marathons")
+  Object adminMarathons(HttpServletRequest r) {
+    var u = auth.current(r);
+    auth.admin(u);
+    return marathons.dashboard(u).get("marathons");
   }
 
   @PatchMapping("/admin/users/{uid}")

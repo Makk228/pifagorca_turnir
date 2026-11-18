@@ -35,25 +35,195 @@ public class Assignments {
 
   @Transactional
   public List<String> generate(Map<String, Object> u, String mid, Map<String, Object> body) {
-    var m = marathons.access(u, mid, true);
-    db.one("select id from marathons where id=? for update", mid);
-    int day = number(body, "day", 1, n(m, "days")), count = number(body, "count", 1, 200);
+    var m = marathons.lock(u, mid, true);
+    int day = number(body, "day", 1, n(m, "days"));
     var lids = ids(body, "libraryIds");
+    var childIds = ids(body, "childIds");
+    var competitionCategories = new LinkedHashSet<String>();
+    for (String childId : childIds) {
+      var participant = db.maybe(
+          "select e.competition_category from enrollments e where e.marathon_id=? and e.child_id=?",
+          mid, childId);
+      require(participant.isPresent(), "Ребёнок не участвует в марафоне");
+      String competition = s(participant.orElseThrow(), "competition_category");
+      require(!competition.isBlank(), "Сначала назначьте ребёнку категорию соревнования");
+      competitionCategories.add(competition);
+    }
+    var libraryByCompetition =
+        libraries.requireOnePerCompetitionCategory(u, lids, competitionCategories);
+    if (body.get("recipes") instanceof List<?>
+        || db.maybe("select marathon_id from marathon_syllabus_rules where marathon_id=? limit 1", mid)
+            .isPresent())
+      return generateByRecipes(u, m, body, childIds, libraryByCompetition, day);
+    int count = number(body, "count", 1, 200);
     String level = optional(body, "level", 10), topic = optional(body, "topic", 80);
     if (!level.isEmpty()) choice(body, "level", "BASIC", "MEDIUM", "HARD");
     var result = new ArrayList<String>();
-    for (String cid : ids(body, "childIds")) {
-      var c = db.one("select * from children where id=?", cid);
-      var examples = libraries.select(u, lids, s(c, "category"), level, topic, count);
+    for (String cid : childIds) {
+      var participant = db.maybe(
+          "select c.category,e.competition_category from enrollments e join children c on c.id=e.child_id"
+              + " where e.marathon_id=? and e.child_id=?",
+          mid, cid);
+      require(participant.isPresent(), "Ребёнок не участвует в марафоне");
+      var c = participant.orElseThrow();
+      var examples = libraries.select(
+          u,
+          List.of(libraryByCompetition.get(s(c, "competition_category"))),
+          s(c, "category"),
+          s(c, "competition_category"),
+          level,
+          topic,
+          count);
       result.add(assign(u, m, cid, day, optional(body, "instruction", 2000), examples));
     }
     return result;
   }
 
+  private List<String> generateByRecipes(
+      Map<String, Object> u,
+      Map<String, Object> marathon,
+      Map<String, Object> body,
+      List<String> childIds,
+      Map<String, String> libraryByCompetition,
+      int day) {
+    var recipes = recipes(body, s(marathon, "id"));
+    var prepared = new ArrayList<Map.Entry<String, List<Map<String, Object>>>>();
+    for (String childId : childIds) {
+      var child = db.maybe(
+          "select c.category,c.birth_date,e.competition_category from enrollments e"
+              + " join children c on c.id=e.child_id where e.marathon_id=? and e.child_id=?",
+          s(marathon, "id"), childId);
+      require(child.isPresent(), "Ребёнок не участвует в марафоне");
+      var participant = child.orElseThrow();
+      require(participant.get("birth_date") instanceof LocalDate,
+          "У ребёнка должна быть указана полная дата рождения");
+      String category = s(participant, "category");
+      String competition = s(participant, "competition_category");
+      require(!competition.isBlank(), "Сначала назначьте ребёнку категорию соревнования");
+      int age = Period.between((LocalDate) participant.get("birth_date"),
+          (LocalDate) marathon.get("start_date")).getYears();
+      require(age >= 0, "Дата рождения ребёнка позже даты начала марафона");
+      String ageBand = ageBand(age);
+      var rules = recipes.get(recipeKey(ageBand, category, competition));
+      require(rules != null,
+          "Не настроен силлабус для возраста " + ageBandLabel(ageBand) + " · "
+              + CompetitionCategory.label(competition));
+      int expected = category.equals("BABY")
+          ? n(marathon, "preschool_example_count") : n(marathon, "school_example_count");
+      require(rules.stream().mapToInt(Libraries.Rule::count).sum() == expected,
+          "Для " + ageBandLabel(ageBand) + " нужно ровно " + expected + " примеров");
+      prepared.add(Map.entry(childId,
+          libraries.selectRules(
+              u, List.of(libraryByCompetition.get(competition)), category, competition, rules)));
+    }
+    var result = new ArrayList<String>();
+    String instruction = optional(body, "instruction", 2000);
+    for (var child : prepared)
+      result.add(assign(u, marathon, child.getKey(), day, instruction, child.getValue()));
+    return result;
+  }
+
+  private Map<String, List<Libraries.Rule>> recipes(Map<String, Object> body, String marathonId) {
+    var result = new HashMap<String, List<Libraries.Rule>>();
+    if (!(body.get("recipes") instanceof List<?>)) {
+      for (var row : db.list(
+          "select * from marathon_syllabus_rules where marathon_id=?"
+              + " order by age_band,category,competition_category,position", marathonId))
+        result.computeIfAbsent(
+                recipeKey(s(row, "age_band"), s(row, "category"), s(row, "competition_category")),
+                ignored -> new ArrayList<>())
+            .add(new Libraries.Rule(n(row, "digits"), n(row, "terms"),
+                s(row, "operation"), n(row, "example_count")));
+      require(!result.isEmpty(), "К марафону не прикреплён силлабус");
+      return result;
+    }
+    for (Object item : (List<?>) body.get("recipes")) {
+      require(item instanceof Map<?, ?>, "Некорректный силлабус");
+      @SuppressWarnings("unchecked")
+      var recipe = (Map<String, Object>) item;
+      String ageBand = choice(recipe, "ageBand", "4_5", "6_7", "8_9", "10_11", "12_PLUS");
+      String category = choice(recipe, "category", "BABY", "SCHOOL");
+      String competition = text(recipe, "competitionCategory", 24);
+      CompetitionCategory.validate(competition, category);
+      require(recipe.get("rules") instanceof List<?>, "Добавьте строки силлабуса");
+      var rules = new ArrayList<Libraries.Rule>();
+      for (Object row : (List<?>) recipe.get("rules")) {
+        require(row instanceof Map<?, ?>, "Некорректная строка силлабуса");
+        @SuppressWarnings("unchecked")
+        var rule = (Map<String, Object>) row;
+        int digits = number(rule, "digits", 1, 6), terms = number(rule, "terms", 2, 7);
+        int count = number(rule, "count", 1, 200);
+        String operation = choice(rule, "operation",
+            "ADDITION", "SUBTRACTION", "MULTIPLICATION", "DIVISION");
+        rules.add(new Libraries.Rule(digits, terms, operation, count));
+      }
+      require(!rules.isEmpty(), "Добавьте хотя бы одну строку силлабуса");
+      require(result.put(recipeKey(ageBand, category, competition), rules) == null,
+          "Одна группа силлабуса передана дважды");
+    }
+    require(!result.isEmpty(), "Добавьте правила генерации");
+    return result;
+  }
+
+  private String recipeKey(String ageBand, String category, String competition) {
+    return ageBand + ":" + category + ":" + competition;
+  }
+
+  private String ageBand(int age) {
+    if (age <= 5) return "4_5";
+    if (age <= 7) return "6_7";
+    if (age <= 9) return "8_9";
+    if (age <= 11) return "10_11";
+    return "12_PLUS";
+  }
+
+  private String ageBandLabel(String ageBand) {
+    return switch (ageBand) {
+      case "4_5" -> "4–5 лет";
+      case "6_7" -> "6–7 лет";
+      case "8_9" -> "8–9 лет";
+      case "10_11" -> "10–11 лет";
+      default -> "12+";
+    };
+  }
+
   @Transactional
   public String manual(Map<String, Object> u, String mid, Map<String, Object> body) {
-    var m = marathons.access(u, mid, true);
-    db.one("select id from marathons where id=? for update", mid);
+    var m = marathons.lock(u, mid, true);
+    var examples = examples(body);
+    return assign(
+        u,
+        m,
+        text(body, "childId", 36),
+        number(body, "day", 1, n(m, "days")),
+        optional(body, "instruction", 2000),
+        examples);
+  }
+
+  @Transactional
+  public void update(Map<String, Object> u, String aid, Map<String, Object> body) {
+    var assignment = access(u, aid, true);
+    var marathon = marathons.lock(u, s(assignment, "marathon_id"), true);
+    require(assignment.get("current_attempt") == null,
+        "Ребёнок уже открыл задание. Изменять его нельзя");
+    require(!Set.of("CANCELLED", "COMPLETED").contains(marathons.effectiveStatus(marathon)),
+        "Марафон закрыт");
+    require(clock.instant().isBefore(marathons.opens(marathon, n(assignment, "day") + 1)),
+        "Этот день уже закрыт");
+    var examples = examples(body);
+    db.run("delete from examples where assignment_id=?", aid);
+    int position = 0;
+    for (var example : examples)
+      db.run(
+          "insert into examples values(?,?,?,?,?)",
+          id(), aid, ++position, s(example, "expression"), n(example, "answer"));
+    db.run("update assignments set instruction=? where id=?",
+        optional(body, "instruction", 2000), aid);
+    auth.audit(s(u, "id"), "ASSIGNMENT_UPDATED", aid,
+        "Примеров: " + examples.size());
+  }
+
+  private List<Map<String, Object>> examples(Map<String, Object> body) {
     require(body.get("examples") instanceof List<?>, "Добавьте примеры");
     var list = (List<?>) body.get("examples");
     require(!list.isEmpty() && list.size() <= 200, "Нужно от 1 до 200 примеров");
@@ -69,13 +239,7 @@ public class Assignments {
               "answer",
               number(row, "answer", Integer.MIN_VALUE, Integer.MAX_VALUE)));
     }
-    return assign(
-        u,
-        m,
-        text(body, "childId", 36),
-        number(body, "day", 1, n(m, "days")),
-        optional(body, "instruction", 2000),
-        examples);
+    return examples;
   }
 
   String assign(
@@ -95,6 +259,7 @@ public class Assignments {
                 cid)
             .isPresent(),
         "Ребёнок не участвует в марафоне");
+    requireActiveChild(cid);
     var existing =
         db.maybe(
             "select * from assignments where marathon_id=? and child_id=? and day=? for update",
@@ -135,8 +300,7 @@ public class Assignments {
   @Transactional
   public String copy(Map<String, Object> u, String aid, Map<String, Object> body) {
     var source = db.one("select * from assignments where id=?", aid);
-    var m = marathons.access(u, s(source, "marathon_id"), true);
-    db.one("select id from marathons where id=? for update", s(m, "id"));
+    var m = marathons.lock(u, s(source, "marathon_id"), true);
     return assign(
         u,
         m,
@@ -157,9 +321,10 @@ public class Assignments {
   @Transactional
   public Map<String, Object> start(Map<String, Object> u, String aid) {
     auth.parent(u);
-    require(b(u, "verified"), "Подтвердите телефон");
-    var a = access(u, aid, false);
-    var m = marathons.access(u, s(a, "marathon_id"), false);
+    var source = db.one("select marathon_id from assignments where id=?", aid);
+    var m = marathons.lock(u, s(source, "marathon_id"), false);
+    var a = db.one("select * from assignments where id=? for update", aid);
+    marathons.ownChild(u, s(a, "child_id"));
     require(
         !Set.of("DRAFT", "CANCELLED").contains(marathons.effectiveStatus(m)), "Марафон недоступен");
     expire(a);
@@ -172,7 +337,8 @@ public class Assignments {
           !now.isBefore(marathons.opens(m, n(a, "day")))
               && now.isBefore(marathons.opens(m, n(a, "day") + 1)),
           "Задание сейчас недоступно");
-    Instant deadline = now.plusSeconds(1800);
+    int durationMinutes = n(m, "task_duration_minutes");
+    Instant deadline = now.plusSeconds(durationMinutes * 60L);
     if (!reopened && deadline.isAfter(marathons.opens(m, n(a, "day") + 1)))
       deadline = marathons.opens(m, n(a, "day") + 1);
     String tid = id();
@@ -195,7 +361,8 @@ public class Assignments {
     a.put("reopened_until", null);
     invalidate(s(a, "marathon_id"));
     auth.audit(s(u, "id"), "ATTEMPT_STARTED", aid, tid);
-    notifyParent(a, "started:" + tid, "Задание начато. На выполнение — до 30 минут.");
+    notifyParent(a, "started:" + tid,
+        "Задание начато. На выполнение — до " + durationMinutes + " минут.");
     return view(u, a);
   }
 
@@ -342,14 +509,22 @@ public class Assignments {
     result.put("assignment", a);
     var child =
         db.one(
-            "select id,first_name,last_name,middle_name,category from children where id=?",
+            "select id,first_name,last_name,middle_name,category,deleted_at from children where id=?",
             s(a, "child_id"));
     result.put("child", child);
     result.put("attempt", t);
     result.put("status", status);
+    result.put("editable",
+        staff
+            && a.get("current_attempt") == null
+            && !Set.of("CANCELLED", "COMPLETED").contains(marathons.effectiveStatus(m))
+            && clock.instant().isBefore(marathons.opens(m, n(a, "day") + 1)));
     result.put("examples", examples);
-    result.put(
-        "marathon", Map.of("id", s(m, "id"), "title", s(m, "title"), "timezone", s(m, "timezone")));
+    result.put("marathon", Map.of(
+        "id", s(m, "id"),
+        "title", s(m, "title"),
+        "timezone", s(m, "timezone"),
+        "taskDurationMinutes", n(m, "task_duration_minutes")));
     result.put("serverTime", clock.instant());
     result.put("opensAt", marathons.opens(m, n(a, "day")));
     result.put("closesAt", marathons.opens(m, n(a, "day") + 1));
@@ -363,6 +538,7 @@ public class Assignments {
   @Transactional
   public void reopen(Map<String, Object> u, String aid, Map<String, Object> body) {
     var a = access(u, aid, true);
+    requireActiveChild(s(a, "child_id"));
     var m = marathons.access(u, s(a, "marathon_id"), true);
     require(!Set.of("DRAFT", "CANCELLED").contains(s(m, "status")), "Марафон недоступен");
     require(b(body, "confirmed"), "Подтвердите технический сбой");
@@ -402,6 +578,7 @@ public class Assignments {
 
   void notifyParent(Map<String, Object> a, String key, String text) {
     var c = db.one("select * from children where id=?", s(a, "child_id"));
+    if (c.get("deleted_at") != null) return;
     auth.queue(
         s(c, "parent_id"),
         key,
@@ -435,7 +612,7 @@ public class Assignments {
         for (var c :
             db.list(
                 "select c.* from children c join enrollments e on e.child_id=c.id where"
-                    + " e.marathon_id=?",
+                    + " e.marathon_id=? and c.deleted_at is null",
                 s(m, "id")))
           auth.queue(
               s(c, "parent_id"),
@@ -448,10 +625,17 @@ public class Assignments {
 
   boolean hasPending(String mid) {
     return db.maybe(
-            "select a.id from assignments a left join attempts t on t.id=a.current_attempt where"
-                + " a.marathon_id=? and (t.status='IN_PROGRESS' or a.reopened_until>?)",
+            "select a.id from assignments a join children c on c.id=a.child_id"
+                + " left join attempts t on t.id=a.current_attempt where a.marathon_id=?"
+                + " and (t.status='IN_PROGRESS' or (c.deleted_at is null and a.reopened_until>?))",
             mid,
             clock.instant().atOffset(ZoneOffset.UTC))
         .isPresent();
+  }
+
+  private void requireActiveChild(String cid) {
+    require(
+        db.one("select deleted_at from children where id=?", cid).get("deleted_at") == null,
+        "Карточка ребёнка удалена из кабинета");
   }
 }

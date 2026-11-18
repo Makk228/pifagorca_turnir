@@ -32,17 +32,68 @@ public class Rankings {
     boolean parent = s(u, "role").equals("PARENT");
     if (parent && !b(m, "published")) forbidden();
     var rows = calculate(m);
-    if (parent)
-      for (var r : rows) {
-        if (!b(r, "ranking_consent")) {
-          r.put("name", "Участник без публикации ФИО");
-          r.remove("child_id");
-        }
-        r.remove("ranking_consent");
-        r.remove("parent_id");
-        r.remove("birth_year");
+    if (!parent) return rows;
+
+    var categories = new HashSet<String>();
+    for (var row : rows)
+      if (s(u, "id").equals(s(row, "parent_id")) && row.get("deleted_at") == null)
+        categories.add(s(row, "category"));
+    rows = rows.stream().filter(row -> categories.contains(s(row, "category"))).toList();
+    for (var r : rows) {
+      if (r.remove("deleted_at") != null || !b(r, "ranking_consent")) {
+        r.put("name", "Участник без публикации ФИО");
+        r.remove("child_id");
       }
+      r.remove("ranking_consent");
+      r.remove("parent_id");
+      r.remove("birth_year");
+      r.remove("competition_category");
+    }
     return rows;
+  }
+
+  private List<Map<String, Object>> rankByCategory(
+      List<Map<String, Object>> rows, Map<String, Map<String, Object>> decisions) {
+    List<Map<String, Object>> result = new ArrayList<>();
+    var groups = new TreeMap<String, List<Map<String, Object>>>(Comparator.reverseOrder());
+    for (var row : rows)
+      groups.computeIfAbsent(s(row, "category"), key -> new ArrayList<>()).add(row);
+    for (var categoryRows : groups.values()) {
+      categoryRows.sort(
+          Comparator.<Map<String, Object>>comparingInt(row -> n(row, "score"))
+              .reversed()
+              .thenComparing(row -> s(row, "name"))
+              .thenComparing(row -> s(row, "child_id")));
+      for (int start = 0; start < categoryRows.size(); ) {
+        int end = start + 1;
+        int score = n(categoryRows.get(start), "score");
+        while (end < categoryRows.size() && n(categoryRows.get(end), "score") == score) end++;
+        var group = categoryRows.subList(start, end);
+        boolean tied = group.size() > 1;
+        boolean resolved =
+            tied
+                && group.stream()
+                    .allMatch(
+                        row -> {
+                          var decision = decisions.get(s(row, "child_id"));
+                          return decision != null && n(decision, "score") == score;
+                        });
+        // A saved rank can come from the former combined ranking. Use its relative order.
+        if (resolved)
+          group = group.stream()
+              .sorted(Comparator.comparingInt(row -> n(decisions.get(s(row, "child_id")), "rank")))
+              .toList();
+        for (int i = 0; i < group.size(); i++) {
+          var row = group.get(i);
+          row.put("rank", start + (resolved ? i : 0) + 1);
+          row.put("tie", tied && !resolved);
+          row.put("decision", resolved ? s(decisions.get(s(row, "child_id")), "reason") : "");
+          result.add(row);
+        }
+        start = end;
+      }
+    }
+    return result;
   }
 
   List<Map<String, Object>> calculate(Map<String, Object> m) {
@@ -54,7 +105,8 @@ public class Rankings {
     List<Map<String, Object>> rows = new ArrayList<>();
     for (var c :
         db.list(
-            "select c.*,u.ranking_consent from children c join enrollments e on e.child_id=c.id"
+            "select c.*,e.competition_category,u.ranking_consent from children c"
+                + " join enrollments e on e.child_id=c.id"
                 + " join users u on u.id=c.parent_id where e.marathon_id=?",
             mid)) {
       int score = 0, completed = 0, missed = 0, errors = 0, skipped = 0;
@@ -87,8 +139,10 @@ public class Rankings {
           "name",
           (s(c, "last_name") + " " + s(c, "first_name") + " " + s(c, "middle_name")).trim());
       r.put("category", s(c, "category"));
+      r.put("competition_category", s(c, "competition_category"));
       r.put("birth_year", n(c, "birth_year"));
       r.put("ranking_consent", b(c, "ranking_consent"));
+      r.put("deleted_at", c.get("deleted_at"));
       r.put("days", days);
       r.put("score", score);
       r.put("completed_days", completed);
@@ -97,35 +151,16 @@ public class Rankings {
       r.put("skipped", skipped);
       rows.add(r);
     }
-    rows.sort(
-        Comparator.<Map<String, Object>>comparingInt(r -> n(r, "score"))
-            .reversed()
-            .thenComparing(r -> s(r, "name")));
-    int previous = Integer.MIN_VALUE, rank = 0;
-    for (int i = 0; i < rows.size(); i++) {
-      var r = rows.get(i);
-      int score = n(r, "score");
-      if (score != previous) rank = i + 1;
-      previous = score;
-      long group = rows.stream().filter(x -> n(x, "score") == score).count();
-      var decision =
-          db.maybe(
-              "select * from tie_decisions where marathon_id=? and child_id=? and score=?",
-              mid,
-              s(r, "child_id"),
-              score);
-      r.put("rank", decision.isPresent() ? n(decision.get(), "rank") : rank);
-      r.put("tie", group > 1 && decision.isEmpty());
-      r.put("decision", decision.map(x -> s(x, "reason")).orElse(""));
-    }
-    rows.sort(Comparator.comparingInt(r -> n(r, "rank")));
-    return rows;
+    var decisions = new HashMap<String, Map<String, Object>>();
+    for (var decision : db.list(
+        "select * from tie_decisions where marathon_id=? and applies_to_category=true", mid))
+      decisions.put(s(decision, "child_id"), decision);
+    return rankByCategory(rows, decisions);
   }
 
   @Transactional
   public void resolve(Map<String, Object> u, String mid, Map<String, Object> body) {
-    var m = marathons.access(u, mid, true);
-    db.one("select id from marathons where id=? for update", mid);
+    var m = marathons.lock(u, mid, true);
     require(
         marathons.effectiveStatus(m).equals("COMPLETED"),
         "Очная встреча фиксируется после окончания марафона");
@@ -141,16 +176,19 @@ public class Rankings {
             .findFirst()
             .orElseThrow(() -> new IllegalArgumentException("Участник не найден"));
     int score = n(first, "score");
-    var group = rows.stream().filter(r -> n(r, "score") == score).toList();
+    String category = s(first, "category");
+    var categoryRows = rows.stream().filter(r -> category.equals(s(r, "category"))).toList();
+    var group = categoryRows.stream().filter(r -> n(r, "score") == score).toList();
     require(
         new HashSet<>(group.stream().map(r -> s(r, "child_id")).toList())
             .equals(new HashSet<>(children)),
-        "Нужно указать всю группу с одинаковыми баллами, без других участников");
-    int rank = (int) rows.stream().filter(r -> n(r, "score") > score).count() + 1;
+        "Укажите всех участников с одинаковыми баллами в одной категории");
+    int rank = (int) categoryRows.stream().filter(r -> n(r, "score") > score).count() + 1;
     for (String cid : children) {
       db.run("delete from tie_decisions where marathon_id=? and child_id=?", mid, cid);
       db.run(
-          "insert into tie_decisions values(?,?,?,?,?,?,?)",
+          "insert into tie_decisions(marathon_id,child_id,rank,score,reason,actor_id,at)"
+              + " values(?,?,?,?,?,?,?)",
           mid,
           cid,
           rank++,
@@ -164,17 +202,23 @@ public class Rankings {
 
   @Transactional
   public void notifyTies() {
-    for (var m : db.list("select * from marathons where status<>'DRAFT' and status<>'CANCELLED'"))
-      if (marathons.effectiveStatus(m).equals("COMPLETED") && !assignments.hasPending(s(m, "id")))
-        for (var r : calculate(m))
-          if (b(r, "tie"))
-            auth.queue(
-                s(r, "parent_id"),
-                "tie:" + s(m, "id") + ":" + s(r, "child_id") + ":" + n(r, "score"),
-                "Считай: равный результат в марафоне «"
-                    + s(m, "title")
-                    + "». Требуется очная встреча. Свяжитесь с педагогом.",
-                false);
+    for (var m : db.list("select * from marathons where status<>'DRAFT' and status<>'CANCELLED'")) {
+      String mid = s(m, "id");
+      if (!marathons.effectiveStatus(m).equals("COMPLETED") || assignments.hasPending(mid)) continue;
+      for (var r : calculate(m)) {
+        if (!b(r, "tie") || r.get("deleted_at") != null) continue;
+        String key = "tie:" + mid + ":" + s(r, "child_id") + ":" + n(r, "score");
+        if (db.maybe("select id from sms_outbox where event_key like ? limit 1", key + ":%")
+            .isPresent()) continue;
+        auth.queue(
+            s(r, "parent_id"),
+            key,
+            "Считай: равный результат в марафоне «"
+                + s(m, "title")
+                + "». Требуется очная встреча. Свяжитесь с педагогом.",
+            false);
+      }
+    }
   }
 
   static String safeCell(Object value) {
@@ -211,7 +255,8 @@ public class Rankings {
             "Итого",
             "Место",
             "Пропущено дней",
-            "Очная встреча"));
+            "Очная встреча",
+            "Категория соревнования"));
     for (var r : calculate(m))
       for (int day = 1; day <= n(m, "days"); day++) {
         var t =
@@ -245,7 +290,8 @@ public class Rankings {
                 r.get("score"),
                 r.get("rank"),
                 r.get("missed_days"),
-                r.get("tie")));
+                r.get("tie"),
+                CompetitionCategory.label(s(r, "competition_category"))));
       }
     return csv(rows);
   }

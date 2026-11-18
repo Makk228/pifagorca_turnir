@@ -43,7 +43,7 @@ public class Sms {
       var sms = db.one("select * from sms_outbox where id=? for update", s(candidate, "id"));
       if (!s(sms, "status").equals("PENDING")) continue;
       var u = db.one("select * from users where id=?", s(sms, "user_id"));
-      if (!b(u, "enabled") || (!b(sms, "service") && (!b(u, "sms_consent") || !b(u, "verified")))) {
+      if (!b(u, "enabled") || (!b(sms, "service") && !b(u, "sms_consent"))) {
         db.run("update sms_outbox set status='CANCELLED',body='' where id=?", s(sms, "id"));
         continue;
       }

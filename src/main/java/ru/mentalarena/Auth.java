@@ -54,6 +54,7 @@ public class Auth {
     var copy = new LinkedHashMap<>(u);
     copy.remove("password_hash");
     copy.remove("auth_version");
+    copy.remove("verified");
     return copy;
   }
 
@@ -95,8 +96,9 @@ public class Auth {
   public Map<String, Object> register(Map<String, Object> body, String ip) {
     limits.check("register:" + ip, 10, 3600);
     String phone = phone(text(body, "phone", 30)),
-        pass = password(body, "password"),
+        pass = password(body, "password", 6),
         name = text(body, "fullName", 150);
+    require(phone.matches("7[0-9]{10}"), "Введите 10 цифр после +7");
     require(
         b(body, "terms") && b(body, "personalData") && b(body, "participation"),
         "Подтвердите обязательные согласия");
@@ -113,11 +115,11 @@ public class Auth {
         name,
         passwords.encode(pass),
         "PARENT",
-        b(body, "smsConsent"),
+        false,
         b(body, "rankingConsent"),
         clock.instant());
     for (String c :
-        List.of("terms", "personalData", "participation", "smsConsent", "rankingConsent"))
+        List.of("terms", "personalData", "participation", "rankingConsent"))
       consent(uid, c, b(body, c));
     audit(uid, "REGISTER", uid, "Регистрация и согласия");
     return Map.of("ok", true);
@@ -146,20 +148,24 @@ public class Auth {
   @Transactional
   public void updateConsents(Map<String, Object> u, Map<String, Object> body) {
     parent(u);
-    db.run(
-        "update users set sms_consent=?,ranking_consent=? where id=?",
-        b(body, "smsConsent"),
-        b(body, "rankingConsent"),
-        s(u, "id"));
-    consent(s(u, "id"), "smsConsent", b(body, "smsConsent"));
-    consent(s(u, "id"), "rankingConsent", b(body, "rankingConsent"));
-    audit(s(u, "id"), "CONSENTS", s(u, "id"), "Обновлены согласия");
+    String uid = s(u, "id");
+    if (body.containsKey("smsConsent")) {
+      boolean granted = b(body, "smsConsent");
+      db.run("update users set sms_consent=? where id=?", granted, uid);
+      consent(uid, "smsConsent", granted);
+    }
+    if (body.containsKey("rankingConsent")) {
+      boolean granted = b(body, "rankingConsent");
+      db.run("update users set ranking_consent=? where id=?", granted, uid);
+      consent(uid, "rankingConsent", granted);
+    }
+    audit(uid, "CONSENTS", uid, "Обновлены согласия");
   }
 
   @Transactional
   public void requestOtp(Map<String, Object> body, String ip) {
     String phone = phone(text(body, "phone", 30)),
-        purpose = choice(body, "purpose", "VERIFY", "RESET");
+        purpose = choice(body, "purpose", "RESET");
     limits.check("otp-ip:" + ip, 20, 3600);
     limits.check("otp:" + phone, 3, 600);
     var user = db.maybe("select * from users where phone=? and enabled=true", phone);
@@ -182,8 +188,8 @@ public class Auth {
   @Transactional(noRollbackFor = ResponseStatusException.class)
   public void verifyOtp(Map<String, Object> body) {
     String phone = phone(text(body, "phone", 30)),
-        purpose = choice(body, "purpose", "VERIFY", "RESET");
-    String pass = purpose.equals("RESET") ? password(body, "newPassword") : null;
+        purpose = choice(body, "purpose", "RESET");
+    String pass = password(body, "newPassword");
     var row = db.maybe("select * from otp where phone=? and purpose=? for update", phone, purpose);
     if (row.isEmpty())
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Код недействителен");
@@ -193,30 +199,18 @@ public class Auth {
         "Код истёк. Запросите новый");
     db.run("update otp set tries=tries+1 where phone=? and purpose=?", phone, purpose);
     require(passwords.matches(s(body, "code"), s(r, "code_hash")), "Код недействителен");
-    if (purpose.equals("VERIFY")) db.run("update users set verified=true where phone=?", phone);
-    else
-      db.run(
-          "update users set password_hash=?,auth_version=auth_version+1 where phone=?",
-          passwords.encode(pass),
-          phone);
+    db.run(
+        "update users set password_hash=?,auth_version=auth_version+1 where phone=?",
+        passwords.encode(pass),
+        phone);
     db.run("delete from otp where phone=? and purpose=?", phone, purpose);
     var u = db.one("select id from users where phone=?", phone);
-    if (purpose.equals("VERIFY"))
-      queue(
-          s(u, "id"),
-          "registration:" + s(u, "id"),
-          "Считай: регистрация завершена, телефон подтверждён. Добро пожаловать!",
-          false);
-    audit(
-        s(u, "id"),
-        purpose.equals("VERIFY") ? "PHONE_VERIFIED" : "PASSWORD_RESET",
-        s(u, "id"),
-        "Подтверждено одноразовым кодом");
+    audit(s(u, "id"), "PASSWORD_RESET", s(u, "id"), "Пароль изменён по одноразовому коду");
   }
 
   void queue(String uid, String key, String body, boolean service) {
     var u = db.one("select * from users where id=?", uid);
-    if (!service && (!b(u, "sms_consent") || !b(u, "verified"))) return;
+    if (!service && !b(u, "sms_consent")) return;
     if (db.maybe("select id from sms_outbox where event_key=?", key).isPresent()) return;
     db.run(
         "insert into sms_outbox(id,user_id,event_key,body,service,status,next_at,created_at)"

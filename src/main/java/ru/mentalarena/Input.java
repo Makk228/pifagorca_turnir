@@ -54,10 +54,14 @@ public final class Input {
   }
 
   public static String password(Map<String, Object> m, String key) {
+    return password(m, key, 10);
+  }
+
+  public static String password(Map<String, Object> m, String key, int minimumLength) {
     String p = s(m, key);
     require(
-        p.length() >= 10 && p.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 72,
-        "Пароль: от 10 символов, до 72 байт");
+        p.length() >= minimumLength && p.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 72,
+        "Пароль: от " + minimumLength + " символов, до 72 байт");
     return p;
   }
 }
